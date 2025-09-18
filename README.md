@@ -77,7 +77,10 @@ No API keys are required. Defaults to a local SQLite database (`db.sqlite3`). Yo
 - If you tweak polling or batch size, see `games/tasks.py` and `templates/job_detail.html`.
 
 ## License
-Not specified. Add a LICENSE file if you plan to open source.
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0) License.
+
+- See the full text in `LICENSE`.
+- Summary: You may share and adapt with attribution for noncommercial purposes. No additional restrictions may be applied. For details, refer to the legal code.
 
 ---
 
