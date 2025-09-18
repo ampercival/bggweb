@@ -1,0 +1,28 @@
+{% for r in rows %}
+<tr>
+  <td>{{ r.score_factor }}</td>
+  <td><a href="{% url 'game_detail' bgg_id=r.game_id %}">{{ r.title }}</a></td>
+  <td>{{ r.game_id }}</td>
+  <td>{{ r.year|default:'N/A' }}</td>
+  <td>{{ r.bgg_rank|default:'N/A' }}</td>
+  <td>{{ r.avg_rating }}</td>
+  <td>{{ r.num_voters }}</td>
+  <td>{{ r.weight|default:'N/A' }}</td>
+  <td>{{ r.weight_votes|default:'N/A' }}</td>
+  <td>{% if r.owned %}Owned{% else %}Not Owned{% endif %}</td>
+  <td>{{ r.type }}</td>
+  <td>{{ r.categories_str }}</td>
+  <td>{{ r.player_count }}</td>
+  <td>{{ r.best_pct }}</td>
+  <td>{{ r.best_votes }}</td>
+  <td>{{ r.rec_pct }}</td>
+  <td>{{ r.rec_votes }}</td>
+  <td>{{ r.not_pct }}</td>
+  <td>{{ r.not_votes }}</td>
+  <td>{{ r.total_votes }}</td>
+  <td>{{ r.pc_score }}</td>
+  <td>{{ r.playable }}</td>
+</tr>
+{% empty %}
+<tr><td colspan="22">No data yet. Adjust filters or run a refresh on the home page.</td></tr>
+{% endfor %}

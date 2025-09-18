@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+venv.bak/
+env.bak/
+
+# Environment variables
+.env
+.env.*
+
+# Django
+db.sqlite3
+*.sqlite3
+local_settings.py
+media/
+staticfiles/
+
+# Logs
+*.log
+logs/
+
+# Unit test / coverage
+.pytest_cache/
+.mypy_cache/
+.cache/
+.coverage*
+coverage.xml
+htmlcov/
+
+# Packaging / build
+*.egg-info/
+dist/
+build/
+wheels/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+

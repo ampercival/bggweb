@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BGG Web - Home</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
+    form { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; max-width: 520px; }
+    label { display: inline-block; min-width: 140px; }
+    input[type="text"], input[type="number"] { padding: 6px 8px; }
+    button { padding: 6px 12px; cursor: pointer; }
+    table { border-collapse: collapse; margin-top: 1rem; min-width: 700px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .nav { margin-bottom: 1rem; }
+    .nav a { margin-right: 1rem; }
+    .note { color: #666; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>BoardGameGeek Player Count Explorer</h1>
+
+  <div class="nav">
+    <a href="{% url 'games_list' %}">View Games</a>
+    <a href="{% url 'export_csv' %}">Export CSV</a>
+  </div>
+
+  <h2>Refresh Data (Top N + Username)</h2>
+  <form method="post" style="border-color:#9ec2ff;background:#f7fbff;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="refresh">
+    <div style="margin-bottom:8px;">
+      <label for="n_refresh">Top N games:</label>
+      <input id="n_refresh" name="n" type="number" min="1" max="10000" value="100">
+    </div>
+    <div style="margin-bottom:8px;">
+      <label for="username_refresh">BGG Username:</label>
+      <input id="username_refresh" name="username" type="text" placeholder="optional username">
+    </div>
+    <button type="submit">Refresh Data</button>
+    <div class="note">Scrapes Top N by rank and merges with this user's owned games (if provided), then fetches details and player-count polls. Performs a full refresh of games.</div>
+  </form>
+
+  <h2>Last Refresh</h2>
+  {% if last_refresh %}
+    <div style="border:1px solid #ddd; border-radius:8px; padding:12px; max-width:680px;">
+      <div><b>Status:</b> {{ last_refresh.status|title }}</div>
+      <div>
+        <b>Finished:</b>
+        {% if last_refresh.finished_at %}
+          <span id="lastRefreshTime" data-ts="{{ last_refresh.finished_at|date:'c' }}">{{ last_refresh.finished_at }}</span>
+        {% else %}
+          <span id="lastRefreshTime" data-ts="{{ last_refresh.created_at|date:'c' }}">{{ last_refresh.created_at }}</span>
+        {% endif %}
+      </div>
+      <div><b>Top N:</b> {{ last_refresh.params.n|default:'—' }}</div>
+      <div><b>Username:</b> {{ last_refresh.params.username|default:'—' }}</div>
+      <div><b>Details batch size:</b> {{ last_refresh.params.batch_size|default:'—' }}</div>
+      <div><b>Games refreshed:</b> {{ last_refresh.total }}</div>
+      <div><a href="{% url 'job_detail' job_id=last_refresh.id %}">View job details</a></div>
+    </div>
+  {% else %}
+    <div class="note">No refresh has been run yet.</div>
+  {% endif %}
+  <h2>Recent Jobs</h2>
+  <form method="post" action="{% url 'clear_jobs' %}" style="margin: 0 0 10px 0;">
+    {% csrf_token %}
+    <button type="submit" onclick="return confirm('Delete all job records? This cannot be undone.');">Clear All Jobs</button>
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Kind</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Created</th>
+        <th>Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.id }}</td>
+        <td>{{ job.kind }}</td>
+        <td>{{ job.status }}</td>
+        <td>{{ job.progress }} / {{ job.total }}</td>
+        <td><span class="localtime" data-ts="{{ job.created_at|date:'c' }}">{{ job.created_at }}</span></td>
+        <td><a href="{% url 'job_detail' job_id=job.id %}">Open</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6">No jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    (function() {
+      const el = document.getElementById('lastRefreshTime');
+      if (!el) return;
+      const ts = el.getAttribute('data-ts');
+      try {
+        const d = new Date(ts);
+        el.textContent = d.toLocaleString();
+      } catch (e) {}
+    })();
+    (function() {
+      const els = document.querySelectorAll('.localtime');
+      els.forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        try {
+          const d = new Date(ts);
+          el.textContent = d.toLocaleString();
+        } catch (e) {}
+      });
+    })();
+  </script>
+
+</body>
+</html>
