@@ -1,7 +1,22 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.urls import reverse
-from django.db.models import Prefetch, F
+from django.core.paginator import Paginator
+from django.db.models import (
+    Case,
+    Count,
+    ExpressionWrapper,
+    F,
+    FloatField,
+    IntegerField,
+    Max,
+    Min,
+    OrderBy,
+    Q,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Coalesce
 from urllib.parse import urlencode
 from django.template.loader import render_to_string
 from datetime import datetime
@@ -64,16 +79,14 @@ def clear_jobs(request):
 
 
 def _compute_rows_context(request):
-    # Build per-player-count rows similar to BGG_DataDisplay and return context dict
     sort = request.GET.get('sort', 'score_factor')
     direction = request.GET.get('dir', 'desc')
 
-    # Filters (mirror PyQt)
     q = request.GET.get('q', '')
-    owned_state = request.GET.get('owned_state', 'all')  # all|owned|not
-    type_filter = request.GET.get('type', 'base')  # default to base games
-    playable_state = request.GET.get('playable', 'playable')  # default Playable
-    player_count_filter = request.GET.get('player_count', 'all')  # all|1..7|8plus
+    owned_state = request.GET.get('owned_state', 'all')
+    type_filter = request.GET.get('type', 'base')
+    playable_state = request.GET.get('playable', 'playable')
+    player_count_filter = request.GET.get('player_count', 'all')
     min_year_param = request.GET.get('min_year')
     max_year_param = request.GET.get('max_year')
     min_avg_rating_param = request.GET.get('min_avg_rating')
@@ -81,265 +94,257 @@ def _compute_rows_context(request):
     min_weight_param = request.GET.get('min_weight')
     max_weight_param = request.GET.get('max_weight')
     min_voters_param = request.GET.get('min_voters')
+    selected_categories = request.GET.getlist('categories')
 
     def to_int(val):
         try:
             return int(val) if val not in (None, '') else None
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
     def to_float(val):
         try:
             return float(val) if val not in (None, '') else None
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
-    # Year sliders always active with sensible defaults
     year_slider_min = 1900
     year_slider_max = datetime.now().year
-    min_year = to_int(min_year_param)
-    max_year = to_int(max_year_param)
-    if min_year is None:
-        min_year = year_slider_min
-    if max_year is None:
-        max_year = year_slider_max
-    # Always-on ranges with sensible defaults if not provided
+    min_year = to_int(min_year_param) or year_slider_min
+    max_year = to_int(max_year_param) or year_slider_max
     min_avg_rating = to_float(min_avg_rating_param)
-    max_avg_rating = to_float(max_avg_rating_param)
     if min_avg_rating is None:
         min_avg_rating = 0.0
+    max_avg_rating = to_float(max_avg_rating_param)
     if max_avg_rating is None:
         max_avg_rating = 10.0
     min_weight = to_float(min_weight_param)
-    max_weight = to_float(max_weight_param)
     if min_weight is None:
         min_weight = 0.0
+    max_weight = to_float(max_weight_param)
     if max_weight is None:
         max_weight = 5.0
     min_voters = to_int(min_voters_param)
 
-    # Load all PCR with related games, categories, and families to avoid N+1
-    pcs = (
-        PlayerCountRecommendation.objects
-        .select_related('game')
+    qs = (
+        PlayerCountRecommendation.objects.select_related('game')
         .prefetch_related('game__categories', 'game__families')
-        .all()
+    )
+    qs = qs.annotate(
+        best_pct_c=Coalesce('best_pct', Value(0.0)),
+        rec_pct_c=Coalesce('rec_pct', Value(0.0)),
+        not_pct_c=Coalesce('notrec_pct', Value(0.0)),
+        avg_rating_co=Coalesce('game__avg_rating', Value(0.0)),
+        weight_co=Coalesce('game__weight', Value(0.0)),
+        num_voters_co=Coalesce('game__num_voters', Value(0)),
+        year_int=Case(
+            When(game__year__regex=r'^\d+$', then=Cast('game__year', IntegerField())),
+            default=None,
+            output_field=IntegerField(),
+        ),
+    ).annotate(
+        pc_score_unadj=ExpressionWrapper(
+            F('best_pct_c') * Value(3.0)
+            + F('rec_pct_c') * Value(2.0)
+            - F('not_pct_c') * Value(2.0),
+            output_field=FloatField(),
+        )
     )
 
-    rows = []
-    from collections import defaultdict
-    category_counts = defaultdict(int)
-    family_counts = defaultdict(int)
-    unadj_scores = []
-    for pc in pcs:
-        g = pc.game
-        best_pct = pc.best_pct or 0.0
-        rec_pct = pc.rec_pct or 0.0
-        not_pct = pc.notrec_pct or 0.0
-        pc_unadj = round(best_pct * 3 + rec_pct * 2 + (not_pct * -2), 1)
-        unadj_scores.append(pc_unadj)
-        cats = [c.name for c in getattr(g, 'categories').all()] if hasattr(g, 'categories') else []
-        fams = [f.name for f in getattr(g, 'families').all()] if hasattr(g, 'families') else []
-        # category counting happens after non-category filters
-        rows.append({
-            'title': g.title,
-            'game_id': g.bgg_id,
-            'year': g.year,
-            'bgg_rank': g.bgg_rank,
-            'avg_rating': g.avg_rating,
-            'num_voters': g.num_voters,
-            'weight': g.weight,
-            'weight_votes': g.weight_votes,
-            'owned': g.owned,
-            'type': g.type,
-            'categories': cats,
-            'categories_str': ', '.join(sorted(cats)),
-            'families': fams,
-            'player_count': pc.count,
-            'best_pct': best_pct,
-            'best_votes': pc.best_votes,
-            'rec_pct': rec_pct,
-            'rec_votes': pc.rec_votes,
-            'not_pct': not_pct,
-            'not_votes': pc.notrec_votes,
-            'total_votes': pc.vote_count,
-            'pc_score_unadj': pc_unadj,
-        })
+    qs_for_norm = qs
 
-    # Normalize Player Count Score to 0-10 across all rows
-    if unadj_scores:
-        mn = min(unadj_scores)
-        mx = max(unadj_scores)
-    else:
-        mn = mx = 0
-    for r in rows:
-        if mx != mn:
-            r['pc_score'] = round(((r['pc_score_unadj'] - mn) / (mx - mn)) * 10, 2)
-        else:
-            r['pc_score'] = 0.0
-        # Playable threshold 150 per original script
-        r['playable'] = 'Playable' if r['pc_score_unadj'] >= 150 else 'Not Playable'
-        # Score Factor = (avg_rating*3 + pc_score*1)/4
-        ar = r['avg_rating'] or 0.0
-        r['score_factor'] = round(((ar * 3) + (r['pc_score'] * 1)) / 4, 3)
+    if q:
+        qs = qs.filter(game__title__icontains=q)
 
-    # Apply filters in two passes: first without categories (to compute frequencies), then categories filter
-    pre_category = []
-    filtered = []
-    q_lower = q.lower()
-    selected_categories = request.GET.getlist('categories')
-    for r in rows:
-        # Text
-        if q and q_lower not in (r['title'] or '').lower():
-            continue
-        # Owned
-        if owned_state == 'owned' and not r['owned']:
-            continue
-        if owned_state == 'not' and r['owned']:
-            continue
-        # Type
-        if type_filter == 'base' and (r['type'] or '') != 'Base Game':
-            continue
-        if type_filter == 'expansion' and (r['type'] or '') != 'Expansion':
-            continue
-        # Playable
-        if playable_state == 'playable' and r['playable'] != 'Playable':
-            continue
-        if playable_state == 'not' and r['playable'] != 'Not Playable':
-            continue
-        # Player count
-        pc = r['player_count'] or 0
-        if player_count_filter.isdigit():
-            if pc != int(player_count_filter):
-                continue
-        elif player_count_filter == '8plus':
-            if pc < 8:
-                continue
-        # Year range (year stored as str); keep rows with unknown year only if full-range is selected
-        y_val = None
-        try:
-            y_val = int(r['year']) if r['year'] and str(r['year']).isdigit() else None
-        except Exception:
-            y_val = None
-        strict_year = (min_year > year_slider_min) or (max_year < year_slider_max)
-        if strict_year and y_val is None:
-            continue
-        if y_val is not None and y_val < min_year:
-            continue
-        if y_val is not None and y_val > max_year:
-            continue
-        # Avg rating range (always active)
-        ar = r['avg_rating'] if r['avg_rating'] is not None else None
-        if ar is None or ar < min_avg_rating or ar > max_avg_rating:
-            continue
-        # Weight range (always active)
-        wt = r['weight'] if r['weight'] is not None else None
-        if wt is None or wt < min_weight or wt > max_weight:
-            continue
-        # Min voters
-        if min_voters is not None and (r['num_voters'] or 0) < min_voters:
-            continue
-        pre_category.append(r)
-        for c in (r.get('categories') or []):
-            category_counts[c] += 1
-        for f in (r.get('families') or []):
-            family_counts[f] += 1
+    if owned_state == 'owned':
+        qs = qs.filter(game__owned=True)
+    elif owned_state == 'not':
+        qs = qs.filter(game__owned=False)
+
+    if type_filter == 'base':
+        qs = qs.filter(game__type='Base Game')
+    elif type_filter == 'expansion':
+        qs = qs.filter(game__type='Expansion')
+
+    if playable_state == 'playable':
+        qs = qs.filter(pc_score_unadj__gte=150)
+    elif playable_state == 'not':
+        qs = qs.filter(pc_score_unadj__lt=150)
+
+    if player_count_filter.isdigit():
+        qs = qs.filter(count=int(player_count_filter))
+    elif player_count_filter == '8plus':
+        qs = qs.filter(count__gte=8)
+
+    strict_year = (min_year > year_slider_min) or (max_year < year_slider_max)
+    qs = qs.filter(Q(year_int__gte=min_year) | Q(year_int__isnull=True))
+    qs = qs.filter(Q(year_int__lte=max_year) | Q(year_int__isnull=True))
+    if strict_year:
+        qs = qs.filter(year_int__isnull=False)
+
+    qs = qs.filter(avg_rating_co__gte=min_avg_rating, avg_rating_co__lte=max_avg_rating)
+    qs = qs.filter(weight_co__gte=min_weight, weight_co__lte=max_weight)
+    if min_voters is not None:
+        qs = qs.filter(num_voters_co__gte=min_voters)
+
+    qs_pre_category = qs
+
+    category_counts = {}
+    for row in qs_pre_category.values('game__categories__name').exclude(game__categories__name__isnull=True).annotate(count=Count('id')):
+        name = row['game__categories__name']
+        if name:
+            category_counts[name] = row['count']
+
+    family_counts = {}
+    for row in qs_pre_category.values('game__families__name').exclude(game__families__name__isnull=True).annotate(count=Count('id')):
+        name = row['game__families__name']
+        if name:
+            family_counts[name] = row['count']
 
     if selected_categories:
-        for r in pre_category:
-            if any((c in selected_categories) for c in (r.get('categories') or [])):
-                filtered.append(r)
+        qs = qs.filter(game__categories__name__in=selected_categories).distinct()
+
+    pc_stats = qs_for_norm.aggregate(min_pc=Min('pc_score_unadj'), max_pc=Max('pc_score_unadj'))
+    pc_min = pc_stats['min_pc']
+    pc_max = pc_stats['max_pc']
+
+    if pc_min is None or pc_max is None or pc_max <= pc_min:
+        qs = qs.annotate(pc_score=Value(0.0, output_field=FloatField()))
+        pc_range = None
     else:
-        filtered = pre_category
+        pc_range = pc_max - pc_min
+        qs = qs.annotate(
+            pc_score=ExpressionWrapper(
+                (F('pc_score_unadj') - Value(pc_min)) / Value(pc_range) * Value(10.0),
+                output_field=FloatField(),
+            )
+        )
 
-    # Sorting in Python for both model and computed fields
-    def sort_key(r):
-        val = r.get(sort)
-        if sort in {'bgg_rank', 'avg_rating', 'num_voters', 'weight', 'weight_votes', 'player_count', 'best_pct', 'best_votes', 'rec_pct', 'rec_votes', 'not_pct', 'not_votes', 'total_votes', 'pc_score_unadj', 'pc_score', 'score_factor'}:
-            return (val is None, val)
-        if sort == 'owned':
-            return (val is True,)
-        return (str(val).lower() if val is not None else 'zzz',)
+    qs = qs.annotate(
+        score_factor=ExpressionWrapper(
+            ((F('avg_rating_co') * Value(3.0)) + (F('pc_score') * Value(1.0))) / Value(4.0),
+            output_field=FloatField(),
+        )
+    )
 
-    filtered.sort(key=sort_key, reverse=(direction == 'desc'))
+    order_map = {
+        'title': F('game__title'),
+        'game_id': F('game__bgg_id'),
+        'year': F('year_int'),
+        'bgg_rank': F('game__bgg_rank'),
+        'avg_rating': F('avg_rating_co'),
+        'num_voters': F('num_voters_co'),
+        'weight': F('weight_co'),
+        'weight_votes': F('game__weight_votes'),
+        'owned': F('game__owned'),
+        'type': F('game__type'),
+        'player_count': F('count'),
+        'best_pct': F('best_pct_c'),
+        'best_votes': F('best_votes'),
+        'rec_pct': F('rec_pct_c'),
+        'rec_votes': F('rec_votes'),
+        'not_pct': F('not_pct_c'),
+        'not_votes': F('notrec_votes'),
+        'total_votes': F('vote_count'),
+        'pc_score_unadj': F('pc_score_unadj'),
+        'pc_score': F('pc_score'),
+        'score_factor': F('score_factor'),
+    }
+    order_expr = order_map.get(sort, F('score_factor'))
+    ordering = OrderBy(order_expr, descending=(direction == 'desc'), nulls_last=True)
+    secondary_order = OrderBy(F('game__title'), nulls_last=True)
+    qs = qs.order_by(ordering, secondary_order)
 
-    # Pagination
     def to_page_int(val, default):
         try:
             v = int(val)
             return v if v > 0 else default
-        except Exception:
+        except (TypeError, ValueError):
             return default
-    page = to_page_int(request.GET.get('page'), 1)
+
+    page_number = to_page_int(request.GET.get('page'), 1)
     page_size = to_page_int(request.GET.get('page_size'), 50)
     if page_size > 1000:
         page_size = 1000
-    total_rows = len(filtered)
-    num_pages = max(1, (total_rows + page_size - 1) // page_size)
-    if page > num_pages:
-        page = num_pages
-    start_idx = (page - 1) * page_size
-    end_idx = min(start_idx + page_size, total_rows)
-    rows_page = filtered[start_idx:end_idx]
 
-    # Build qs to preserve filters with multi-value categories
+    paginator = Paginator(qs, page_size)
+    page_obj = paginator.get_page(page_number)
+    rows_count = paginator.count
+    rows = []
+
+    for rec in page_obj.object_list:
+        game = rec.game
+        categories = list(game.categories.values_list('name', flat=True))
+        families = list(game.families.values_list('name', flat=True))
+        pc_unadj = float(rec.pc_score_unadj or 0.0)
+        if pc_range:
+            pc_score_val = (pc_unadj - pc_min) / pc_range * 10.0
+        else:
+            pc_score_val = 0.0
+        score_factor_val = float(rec.score_factor or 0.0)
+        rows.append({
+            'title': game.title,
+            'game_id': game.bgg_id,
+            'year': game.year,
+            'bgg_rank': game.bgg_rank,
+            'avg_rating': game.avg_rating,
+            'num_voters': game.num_voters,
+            'weight': game.weight,
+            'weight_votes': game.weight_votes,
+            'owned': game.owned,
+            'type': game.type,
+            'categories': categories,
+            'categories_str': ', '.join(sorted(categories)),
+            'families': families,
+            'player_count': rec.count,
+            'best_pct': rec.best_pct or 0.0,
+            'best_votes': rec.best_votes or 0,
+            'rec_pct': rec.rec_pct or 0.0,
+            'rec_votes': rec.rec_votes or 0,
+            'not_pct': rec.notrec_pct or 0.0,
+            'not_votes': rec.notrec_votes or 0,
+            'total_votes': rec.vote_count or 0,
+            'pc_score_unadj': round(pc_unadj, 1),
+            'pc_score': round(pc_score_val, 2),
+            'score_factor': round(score_factor_val, 3),
+            'playable': 'Playable' if pc_unadj >= 150 else 'Not Playable',
+        })
+
+    start_idx = (page_obj.number - 1) * page_size
+    end_idx = start_idx + len(rows)
+    start_display = start_idx + 1 if rows_count else 0
+    end_display = end_idx
+    num_pages = paginator.num_pages or 1
+
     param_items = []
-    def add(k, v):
-        if v not in (None, ''):
-            param_items.append((k, v))
-    add('q', q)
-    add('owned_state', owned_state)
-    add('type', type_filter)
-    add('playable', playable_state)
-    add('player_count', player_count_filter)
-    add('min_year', str(min_year))
-    add('max_year', str(max_year))
-    add('min_avg_rating', str(min_avg_rating))
-    add('max_avg_rating', str(max_avg_rating))
-    add('min_weight', str(min_weight))
-    add('max_weight', str(max_weight))
-    add('min_voters', min_voters_param or '')
-    for c in selected_categories:
-        add('categories', c)
-    add('sort', sort)
-    add('dir', direction)
-    add('page', str(page))
-    add('page_size', str(page_size))
-    qs = '&' + urlencode(param_items, doseq=True) if param_items else ''
-    # Also build a qs without sort/dir for header links so toggled sort wins
-    param_items_no_sort = [it for it in param_items if it[0] not in ('sort', 'dir')]
+
+    def add_param(key, value):
+        if value not in (None, ''):
+            param_items.append((key, value))
+
+    add_param('q', q)
+    add_param('owned_state', owned_state)
+    add_param('type', type_filter)
+    add_param('playable', playable_state)
+    add_param('player_count', player_count_filter)
+    add_param('min_year', str(min_year))
+    add_param('max_year', str(max_year))
+    add_param('min_avg_rating', str(min_avg_rating))
+    add_param('max_avg_rating', str(max_avg_rating))
+    add_param('min_weight', str(min_weight))
+    add_param('max_weight', str(max_weight))
+    add_param('min_voters', min_voters_param or '')
+    for cat in selected_categories:
+        add_param('categories', cat)
+    add_param('sort', sort)
+    add_param('dir', direction)
+    add_param('page', str(page_obj.number))
+    add_param('page_size', str(page_size))
+
+    qs_param = '&' + urlencode(param_items, doseq=True) if param_items else ''
+    param_items_no_sort = [item for item in param_items if item[0] not in {'sort', 'dir'}]
     qs_nosort = '&' + urlencode(param_items_no_sort, doseq=True) if param_items_no_sort else ''
 
-    # Build pinned categories (always visible) and the rest (collapsed)
-    pinned_display = [
-        "Abstract Game",
-        "Children's Game",
-        "Customizable Game",
-        "Family Game",
-        "Party Game",
-        "Strategy Game",
-        "Thematic Game",
-        "Wargame",
-    ]
-    def norm(s: str) -> str:
-        try:
-            return (s or "").replace("’", "'").strip().lower()
-        except Exception:
-            return ""
-    # Sum counts by normalized name to handle apostrophe variants
-    from collections import defaultdict as _dd
-    norm_counts = _dd(int)
-    for name, cnt in category_counts.items():
-        norm_counts[norm(name)] += cnt
-    # Pinned pairs in fixed order with counts (0 if absent)
-    top_cat_pairs = [(disp, norm_counts.get(norm(disp), 0)) for disp in pinned_display]
-    pinned_norm_set = {norm(d) for d in pinned_display}
-    # Other categories: present names excluding pinned, alphabetical
-    other_names = [name for name in category_counts.keys() if norm(name) not in pinned_norm_set]
-    other_names.sort(key=lambda x: x.lower())
-    other_cat_pairs = [(name, category_counts.get(name, 0)) for name in other_names]
-
-    # Override pinned logic to use BGG family groups for pinned, and categories for collapsed
     pinned_display = [
         'Abstract',
         "Children's Game",
@@ -350,18 +355,15 @@ def _compute_rows_context(request):
         'Thematic',
         'Wargame',
     ]
-    # Build pinned pairs from family_counts (persisted families)
-    top_cat_pairs = [(disp, family_counts.get(disp, 0)) for disp in pinned_display]
-    # Collapsed list is categories (boardgamecategory) alphabetically
+    top_cat_pairs = [(name, family_counts.get(name, 0)) for name in pinned_display]
     other_names = sorted(category_counts.keys(), key=lambda x: x.lower())
     other_cat_pairs = [(name, category_counts.get(name, 0)) for name in other_names]
-    # Open collapsed if any selected category is outside pinned families
-    pinned_norm = {d.lower() for d in pinned_display}
-    open_more_categories = any((c.lower() not in pinned_norm) for c in selected_categories)
+    pinned_norm = {name.lower() for name in pinned_display}
+    open_more_categories = any(cat.lower() not in pinned_norm for cat in selected_categories)
 
     return {
-        'rows': rows_page,
-        'rows_count': total_rows,
+        'rows': rows,
+        'rows_count': rows_count,
         'sort': sort,
         'dir': direction,
         'q': q,
@@ -378,13 +380,13 @@ def _compute_rows_context(request):
         'min_weight': str(min_weight),
         'max_weight': str(max_weight),
         'min_voters': min_voters_param or '',
-        'qs': qs,
+        'qs': qs_param,
         'qs_nosort': qs_nosort,
-        'page': page,
+        'page': page_obj.number,
         'page_size': page_size,
         'num_pages': num_pages,
-        'start_idx': start_idx + 1 if total_rows else 0,
-        'end_idx': end_idx,
+        'start_idx': start_display,
+        'end_idx': end_display,
         'top_categories': [name for name, _ in top_cat_pairs],
         'other_categories': [name for name, _ in other_cat_pairs],
         'top_categories_pairs': top_cat_pairs,
@@ -392,7 +394,6 @@ def _compute_rows_context(request):
         'open_more_categories': open_more_categories,
         'selected_categories': selected_categories,
     }
-
 
 def games_list(request):
     context = _compute_rows_context(request)
@@ -459,3 +460,11 @@ def export_csv(request):
             r.get('playable'),
         ])
     return response
+
+
+
+
+
+
+
+
