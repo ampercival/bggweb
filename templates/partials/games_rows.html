@@ -1,11 +1,11 @@
 {% for r in rows %}
 <tr>
   <td>{{ r.score_factor }}</td>
-  <td><a href="{% url 'game_detail' bgg_id=r.game_id %}">{{ r.title }}</a></td>
+  <td><a href="{% url 'game_detail' bgg_id=r.game_id %}" target="_blank" rel="noopener">{{ r.title }}</a></td>
   <td>{{ r.game_id }}</td>
   <td>{{ r.year|default:'N/A' }}</td>
   <td>{{ r.bgg_rank|default:'N/A' }}</td>
-  <td>{{ r.avg_rating }}</td>
+  <td>{% if r.avg_rating is not None %}{{ r.avg_rating|floatformat:2 }}{% else %}N/A{% endif %}</td>
   <td>{{ r.num_voters }}</td>
   <td>{{ r.weight|default:'N/A' }}</td>
   <td>{{ r.weight_votes|default:'N/A' }}</td>
@@ -27,3 +27,4 @@
 {% empty %}
 <tr><td colspan="23">No data yet. Adjust filters or run a refresh on the home page.</td></tr>
 {% endfor %}
+

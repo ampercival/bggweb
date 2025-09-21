@@ -47,6 +47,7 @@
   </form>
 
   <h2>Last Refresh</h2>
+  <div class="note"><b>Total games in database:</b> {{ total_games }}</div>
   {% if last_refresh %}
     <div style="border:1px solid #ddd; border-radius:8px; padding:12px; max-width:680px;">
       <div><b>Status:</b> {{ last_refresh.status|title }}</div>

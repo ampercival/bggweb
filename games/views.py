@@ -60,9 +60,11 @@ def home(request):
             return redirect('job_detail', job_id=job.id)
     latest_jobs = FetchJob.objects.order_by('-created_at')[:10]
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
+    total_games = Game.objects.count()
     return render(request, 'home.html', {
         'jobs': latest_jobs,
         'last_refresh': last_refresh,
+        'total_games': total_games,
     })
 
 
@@ -103,6 +105,8 @@ def _compute_rows_context(request):
     max_weight_param = request.GET.get('max_weight')
     min_voters_param = request.GET.get('min_voters')
     selected_categories = request.GET.getlist('categories')
+
+    total_games = Game.objects.count()
 
     def to_int(val):
         try:
@@ -408,6 +412,7 @@ def _compute_rows_context(request):
         'other_categories_pairs': other_cat_pairs,
         'open_more_categories': open_more_categories,
         'selected_categories': selected_categories,
+        'total_games': total_games,
     }
 
 def games_list(request):
@@ -426,11 +431,12 @@ def games_rows(request):
         'num_pages': context['num_pages'],
         'start': context['start_idx'],
         'end': context['end_idx'],
+        'total_games': context.get('total_games'),
     })
 
 
 def game_detail(request, bgg_id: str):
-    game = get_object_or_404(Game.objects.prefetch_related('categories'), bgg_id=bgg_id)
+    game = get_object_or_404(Game.objects.prefetch_related('categories', 'families'), bgg_id=bgg_id)
     pcs = game.player_counts.order_by('count')
     return render(request, 'game_detail.html', {'game': game, 'player_counts': pcs})
 
@@ -475,6 +481,7 @@ def export_csv(request):
             r.get('playable'),
         ])
     return response
+
 
 
 

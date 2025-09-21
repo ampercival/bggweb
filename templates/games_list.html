@@ -37,7 +37,7 @@
   <h1>Games</h1>
   <div class="small">
     Showing <span id="rangeStart">{{ start_idx }}</span>–<span id="rangeEnd">{{ end_idx }}</span>
-    of <span id="rowsCount">{{ rows_total }}</span> rows
+    of <span id="rowsCount">{{ rows_total }}</span> rows &middot; Total games in database: <span id="totalGames">{{ total_games }}</span>
   </div>
   <div style="margin: 8px 0 12px 0;">
     <form id="filtersForm" method="get" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px 16px; align-items:end;">
@@ -178,29 +178,117 @@
     <thead>
       <tr>
         {% with qs=qs_nosort %}
-        <th><a href="?sort=score_factor&dir={% if sort == 'score_factor' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Score Factor{% if sort == 'score_factor' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=title&dir={% if sort == 'title' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Game Title{% if sort == 'title' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=game_id&dir={% if sort == 'game_id' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Game ID{% if sort == 'game_id' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=year&dir={% if sort == 'year' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Year{% if sort == 'year' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=bgg_rank&dir={% if sort == 'bgg_rank' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">BGG Rank{% if sort == 'bgg_rank' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=avg_rating&dir={% if sort == 'avg_rating' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Average Rating{% if sort == 'avg_rating' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=num_voters&dir={% if sort == 'num_voters' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Number of Voters{% if sort == 'num_voters' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=weight&dir={% if sort == 'weight' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Weight{% if sort == 'weight' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=weight_votes&dir={% if sort == 'weight_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Weight Votes{% if sort == 'weight_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=owned&dir={% if sort == 'owned' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Owned{% if sort == 'owned' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=type&dir={% if sort == 'type' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Type{% if sort == 'type' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
+        <th>
+          <a href="?sort=score_factor&dir={% if sort == 'score_factor' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="score_factor" data-next-dir="{% if sort == 'score_factor' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Score Factor<span class="sort-arrow">{% if sort == 'score_factor' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=title&dir={% if sort == 'title' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="title" data-next-dir="{% if sort == 'title' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Game Title<span class="sort-arrow">{% if sort == 'title' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=game_id&dir={% if sort == 'game_id' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="game_id" data-next-dir="{% if sort == 'game_id' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Game ID<span class="sort-arrow">{% if sort == 'game_id' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=year&dir={% if sort == 'year' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="year" data-next-dir="{% if sort == 'year' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Year<span class="sort-arrow">{% if sort == 'year' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=bgg_rank&dir={% if sort == 'bgg_rank' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="bgg_rank" data-next-dir="{% if sort == 'bgg_rank' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            BGG Rank<span class="sort-arrow">{% if sort == 'bgg_rank' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=avg_rating&dir={% if sort == 'avg_rating' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="avg_rating" data-next-dir="{% if sort == 'avg_rating' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Average Rating<span class="sort-arrow">{% if sort == 'avg_rating' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=num_voters&dir={% if sort == 'num_voters' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="num_voters" data-next-dir="{% if sort == 'num_voters' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Number of Voters<span class="sort-arrow">{% if sort == 'num_voters' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=weight&dir={% if sort == 'weight' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="weight" data-next-dir="{% if sort == 'weight' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Weight<span class="sort-arrow">{% if sort == 'weight' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=weight_votes&dir={% if sort == 'weight_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="weight_votes" data-next-dir="{% if sort == 'weight_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Weight Votes<span class="sort-arrow">{% if sort == 'weight_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=owned&dir={% if sort == 'owned' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="owned" data-next-dir="{% if sort == 'owned' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Owned<span class="sort-arrow">{% if sort == 'owned' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=type&dir={% if sort == 'type' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="type" data-next-dir="{% if sort == 'type' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Type<span class="sort-arrow">{% if sort == 'type' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
         <th>Families</th>
-        <th><a href="?sort=categories_str&dir={% if sort == 'categories_str' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Categories{% if sort == 'categories_str' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=player_count&dir={% if sort == 'player_count' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Player Count{% if sort == 'player_count' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=best_pct&dir={% if sort == 'best_pct' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Best %{% if sort == 'best_pct' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=best_votes&dir={% if sort == 'best_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Best Votes{% if sort == 'best_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=rec_pct&dir={% if sort == 'rec_pct' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Rec. %{% if sort == 'rec_pct' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=rec_votes&dir={% if sort == 'rec_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Rec. Votes{% if sort == 'rec_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=not_pct&dir={% if sort == 'not_pct' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Not %{% if sort == 'not_pct' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=not_votes&dir={% if sort == 'not_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Not Votes{% if sort == 'not_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=total_votes&dir={% if sort == 'total_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Total Votes{% if sort == 'total_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=pc_score&dir={% if sort == 'pc_score' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Player Count Score{% if sort == 'pc_score' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
-        <th><a href="?sort=playable&dir={% if sort == 'playable' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Playable{% if sort == 'playable' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
+        <th>
+          <a href="?sort=categories_str&dir={% if sort == 'categories_str' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="categories_str" data-next-dir="{% if sort == 'categories_str' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Categories<span class="sort-arrow">{% if sort == 'categories_str' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=player_count&dir={% if sort == 'player_count' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="player_count" data-next-dir="{% if sort == 'player_count' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Player Count<span class="sort-arrow">{% if sort == 'player_count' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=best_pct&dir={% if sort == 'best_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="best_pct" data-next-dir="{% if sort == 'best_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Best %<span class="sort-arrow">{% if sort == 'best_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=best_votes&dir={% if sort == 'best_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="best_votes" data-next-dir="{% if sort == 'best_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Best Votes<span class="sort-arrow">{% if sort == 'best_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=rec_pct&dir={% if sort == 'rec_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="rec_pct" data-next-dir="{% if sort == 'rec_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Rec. %<span class="sort-arrow">{% if sort == 'rec_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=rec_votes&dir={% if sort == 'rec_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="rec_votes" data-next-dir="{% if sort == 'rec_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Rec. Votes<span class="sort-arrow">{% if sort == 'rec_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=not_pct&dir={% if sort == 'not_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="not_pct" data-next-dir="{% if sort == 'not_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Not %<span class="sort-arrow">{% if sort == 'not_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=not_votes&dir={% if sort == 'not_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="not_votes" data-next-dir="{% if sort == 'not_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Not Votes<span class="sort-arrow">{% if sort == 'not_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=total_votes&dir={% if sort == 'total_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="total_votes" data-next-dir="{% if sort == 'total_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Total Votes<span class="sort-arrow">{% if sort == 'total_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=pc_score&dir={% if sort == 'pc_score' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="pc_score" data-next-dir="{% if sort == 'pc_score' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Player Count Score<span class="sort-arrow">{% if sort == 'pc_score' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
+        <th>
+          <a href="?sort=playable&dir={% if sort == 'playable' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="playable" data-next-dir="{% if sort == 'playable' and dir == 'desc' %}asc{% else %}desc{% endif %}">
+            Playable<span class="sort-arrow">{% if sort == 'playable' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
+          </a>
+        </th>
         {% endwith %}
       </tr>
     </thead>
@@ -283,6 +371,13 @@
         if (tbody) tbody.innerHTML = data.html;
         const countEl = document.getElementById('rowsCount');
         if (countEl) countEl.textContent = data.count;
+        const totalGamesEl = document.getElementById('totalGames');
+        if (totalGamesEl && Object.prototype.hasOwnProperty.call(data, 'total_games') && data.total_games != null) {
+          totalGamesEl.textContent = data.total_games;
+        }
+        if (sortInput && dirInput) {
+          updateSortIndicators(sortInput.value || 'score_factor', dirInput.value || 'desc');
+        }
         // Update pagination indicators
         const rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
         const re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
@@ -326,6 +421,47 @@
       });
     }
 
+    const sortInput = form ? form.querySelector('[name="sort"]') : null;
+    const dirInput = form ? form.querySelector('[name="dir"]') : null;
+    const headerLinks = document.querySelectorAll('thead th a[data-sort]');
+
+    function updateSortIndicators(currentSort, currentDir) {
+      headerLinks.forEach(link => {
+        const arrow = link.querySelector('.sort-arrow');
+        if (!arrow) return;
+        if (link.dataset.sort === currentSort) {
+          arrow.innerHTML = currentDir === 'desc' ? ' &darr;' : ' &uarr;';
+          link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
+        } else {
+          arrow.innerHTML = '';
+          link.dataset.nextDir = 'desc';
+        }
+      });
+    }
+
+    if (form && sortInput && dirInput) {
+      updateSortIndicators(sortInput.value || '{{ sort|default:'score_factor' }}', dirInput.value || '{{ dir|default:'desc' }}');
+    } else {
+      updateSortIndicators('{{ sort|default:'score_factor' }}', '{{ dir|default:'desc' }}');
+    }
+
+    headerLinks.forEach(link => {
+      link.addEventListener('click', (event) => {
+        if (!form || !sortInput || !dirInput) {
+          return;
+        }
+        event.preventDefault();
+        const sortKey = link.dataset.sort;
+        const nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
+        sortInput.value = sortKey;
+        dirInput.value = nextDir;
+        const pageInput = form.querySelector('[name="page"]');
+        if (pageInput) pageInput.value = '1';
+        updateSortIndicators(sortKey, nextDir);
+        submitDebounced(10);
+      });
+    });
+
     const resetBtn = document.getElementById('resetDefaults');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
@@ -346,8 +482,9 @@
         const maxW = form.querySelector('#max_weight'); if (maxW) maxW.value = '5';
         
         const minV = form.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
-        form.querySelector('[name="sort"]').value = 'score_factor';
-        form.querySelector('[name="dir"]').value = 'desc';
+        if (sortInput) sortInput.value = 'score_factor';
+        if (dirInput) dirInput.value = 'desc';
+        updateSortIndicators('score_factor', 'desc');
         const p = form.querySelector('[name="page"]'); if (p) p.value = '1';
         const ps = form.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
         // Clear categories checkboxes
@@ -407,3 +544,5 @@
   </script>
 </body>
 </html>
+
+

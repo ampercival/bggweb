@@ -26,7 +26,7 @@
     <div class="label">BGG ID</div><div>{{ game.bgg_id }}</div>
     <div class="label">Year</div><div>{{ game.year|default:'N/A' }}</div>
     <div class="label">BGG Rank</div><div>{{ game.bgg_rank|default:'N/A' }}</div>
-    <div class="label">Average Rating</div><div>{{ game.avg_rating }}</div>
+    <div class="label">Average Rating</div><div>{% if game.avg_rating is not None %}{{ game.avg_rating|floatformat:2 }}{% else %}N/A{% endif %}</div>
     <div class="label">Number of Voters</div><div>{{ game.num_voters }}</div>
     <div class="label">Weight</div><div>{{ game.weight|default:'N/A' }}</div>
     <div class="label">Weight Votes</div><div>{{ game.weight_votes|default:'N/A' }}</div>
@@ -37,6 +37,16 @@
       {% with cats=game.categories.all %}
         {% if cats %}
           {% for c in cats %}{% if not forloop.first %}, {% endif %}{{ c.name }}{% endfor %}
+        {% else %}
+          N/A
+        {% endif %}
+      {% endwith %}
+    </div>
+    <div class="label">Families</div>
+    <div>
+      {% with fams=game.families.all %}
+        {% if fams %}
+          {% for f in fams %}{% if not forloop.first %}, {% endif %}{{ f.name }}{% endfor %}
         {% else %}
           N/A
         {% endif %}
