@@ -3,6 +3,9 @@ import math
 import logging
 from typing import Dict, List, Tuple
 from urllib.parse import urlencode
+import csv
+import io
+import zipfile
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
@@ -55,6 +58,82 @@ class BGGClient:
                 self._sleep(wait)
 
     # -------- Scrape Top N (ranked/advanced search approximation) --------
+    def fetch_top_games_ranks(self, n: int, on_progress=None, zip_url: str | None = None) -> Dict[str, Dict]:
+        if not zip_url:
+            raise RuntimeError('A ranks ZIP URL is required. Paste the "Click to Download" link from the BGG data dumps page.')
+        try:
+            zip_resp = self._get(zip_url)
+        except requests.RequestException as exc:
+            raise RuntimeError('Failed to download ranks ZIP. The link may have expired.') from exc
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as zf:
+                members = zf.namelist()
+                csv_name = next((name for name in members if name.lower().endswith('.csv')), None)
+                if not csv_name:
+                    raise RuntimeError('Ranks archive did not contain a CSV file')
+                with zf.open(csv_name) as csvfile:
+                    reader = csv.DictReader(io.TextIOWrapper(csvfile, encoding='utf-8'))
+                    results: Dict[str, Dict] = {}
+                    processed = 0
+                    for row in reader:
+                        try:
+                            rank_val = int(row.get('rank') or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if rank_val <= 0:
+                            continue
+                        gid = row.get('id') or ''
+                        name = row.get('name') or ''
+                        if not gid or not name:
+                            continue
+                        def to_float(key):
+                            try:
+                                val = row.get(key)
+                                return float(val) if val not in (None, '', 'null') else None
+                            except (TypeError, ValueError):
+                                return None
+                        def to_int(key):
+                            try:
+                                val = row.get(key)
+                                return int(val) if val not in (None, '', 'null') else None
+                            except (TypeError, ValueError):
+                                return None
+                        avg_rating = to_float('average')
+                        voters = to_int('usersrated')
+                        results[gid] = {
+                            'Game Title': name,
+                            'Game ID': gid,
+                            'Type': 'Expansion' if (row.get('is_expansion') in ('1', 'true', 'True')) else 'Base Game',
+                            'Average Rating': avg_rating,
+                            'Number of Voters': voters,
+                            'Weight': None,
+                            'Weight Votes': None,
+                            'BGG Rank': rank_val,
+                            'Owned': 'Not Owned',
+                        }
+                        processed += 1
+                        if on_progress and processed % 200 == 0:
+                            try:
+                                on_progress(progress=min(processed, n), total=n)
+                            except Exception:
+                                pass
+                        if processed >= n:
+                            break
+        except zipfile.BadZipFile as exc:
+            raise RuntimeError('Ranks ZIP was invalid or corrupted.') from exc
+
+        if not results:
+            raise RuntimeError('Ranks CSV did not contain any ranked games.')
+
+        if on_progress:
+            try:
+                on_progress(progress=min(processed, n), total=n)
+            except Exception:
+                pass
+        return results
+
+
     def fetch_top_games_scrape(self, n: int, on_progress=None) -> Dict[str, Dict]:
         page = 1
         results: Dict[str, Dict] = {}

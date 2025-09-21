@@ -37,6 +37,11 @@
       <label for="username_refresh">BGG Username:</label>
       <input id="username_refresh" name="username" type="text" placeholder="optional username">
     </div>
+    <div style="margin-bottom:8px;">
+      <label for="zip_url_refresh">Ranks ZIP URL:</label>
+      <input id="zip_url_refresh" name="zip_url" type="text" placeholder="https://...boardgames_ranks_YYYY-MM-DD.zip" required>
+      <div class="note">Paste the "Click to Download" link from the <a href="https://boardgamegeek.com/data_dumps/bg_ranks" target="_blank" rel="noopener">BoardGameGeek data dumps page</a>. Each link expires after a few minutes.</div>
+    </div>
     <button type="submit">Refresh Data</button>
     <div class="note">Scrapes Top N by rank and merges with this user's owned games (if provided), then fetches details and player-count polls. Performs a full refresh of games.</div>
   </form>
@@ -55,6 +60,7 @@
       </div>
       <div><b>Top N:</b> {{ last_refresh.params.n|default:'—' }}</div>
       <div><b>Username:</b> {{ last_refresh.params.username|default:'—' }}</div>
+      <div><b>Ranks ZIP:</b> {% if last_refresh.params.zip_url %}<a href="{{ last_refresh.params.zip_url }}" target="_blank" rel="noopener">Download</a>{% else %}&mdash;{% endif %}</div>
       <div><b>Details batch size:</b> {{ last_refresh.params.batch_size|default:'—' }}</div>
       <div><b>Games refreshed:</b> {{ last_refresh.total }}</div>
       <div><a href="{% url 'job_detail' job_id=last_refresh.id %}">View job details</a></div>

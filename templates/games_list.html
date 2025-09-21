@@ -37,7 +37,7 @@
   <h1>Games</h1>
   <div class="small">
     Showing <span id="rangeStart">{{ start_idx }}</span>–<span id="rangeEnd">{{ end_idx }}</span>
-    of <span id="rowsCount">{{ rows_count|default:rows|length }}</span> rows
+    of <span id="rowsCount">{{ rows_total }}</span> rows
   </div>
   <div style="margin: 8px 0 12px 0;">
     <form id="filtersForm" method="get" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px 16px; align-items:end;">
@@ -189,6 +189,7 @@
         <th><a href="?sort=weight_votes&dir={% if sort == 'weight_votes' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Weight Votes{% if sort == 'weight_votes' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
         <th><a href="?sort=owned&dir={% if sort == 'owned' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Owned{% if sort == 'owned' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
         <th><a href="?sort=type&dir={% if sort == 'type' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Type{% if sort == 'type' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
+        <th>Families</th>
         <th><a href="?sort=categories_str&dir={% if sort == 'categories_str' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Categories{% if sort == 'categories_str' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
         <th><a href="?sort=player_count&dir={% if sort == 'player_count' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Player Count{% if sort == 'player_count' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>
         <th><a href="?sort=best_pct&dir={% if sort == 'best_pct' and dir == 'asc' %}desc{% else %}asc{% endif %}{{ qs }}">Best %{% if sort == 'best_pct' %}{% if dir == 'asc' %} &uarr;{% else %} &darr;{% endif %}{% endif %}</a></th>

@@ -33,8 +33,12 @@ def home(request):
                 n = int(request.POST.get('n') or '100')
             except ValueError:
                 n = 100
-            job = FetchJob.objects.create(kind='top_n', params={'n': n}, status='pending', total=n)
-            start_background(run_fetch_top_n, job.id, n)
+            zip_url = (request.POST.get('zip_url') or '').strip()
+            params = {'n': n}
+            if zip_url:
+                params['zip_url'] = zip_url
+            job = FetchJob.objects.create(kind='top_n', params=params, status='pending', total=n)
+            start_background(run_fetch_top_n, job.id, n, zip_url or None)
             return redirect('job_detail', job_id=job.id)
         elif action == 'collection':
             username = request.POST.get('username') or ''
@@ -47,8 +51,12 @@ def home(request):
             except ValueError:
                 n = 100
             username = request.POST.get('username') or ''
-            job = FetchJob.objects.create(kind='refresh', params={'n': n, 'username': username, 'batch_size': 20}, status='pending', total=n)
-            start_background(run_refresh, job.id, n, username, 20)
+            zip_url = (request.POST.get('zip_url') or '').strip()
+            params = {'n': n, 'username': username, 'batch_size': 20}
+            if zip_url:
+                params['zip_url'] = zip_url
+            job = FetchJob.objects.create(kind='refresh', params=params, status='pending', total=n)
+            start_background(run_refresh, job.id, n, username, 20, zip_url or None)
             return redirect('job_detail', job_id=job.id)
     latest_jobs = FetchJob.objects.order_by('-created_at')[:10]
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
@@ -202,7 +210,10 @@ def _compute_rows_context(request):
             family_counts[name] = row['count']
 
     if selected_categories:
-        qs = qs.filter(game__categories__name__in=selected_categories).distinct()
+        qs = qs.filter(
+            Q(game__categories__name__in=selected_categories) |
+            Q(game__families__name__in=selected_categories)
+        ).distinct()
 
     pc_stats = qs_for_norm.aggregate(min_pc=Min('pc_score_unadj'), max_pc=Max('pc_score_unadj'))
     pc_min = pc_stats['min_pc']
@@ -296,6 +307,7 @@ def _compute_rows_context(request):
             'categories': categories,
             'categories_str': ', '.join(sorted(categories)),
             'families': families,
+            'families_str': ', '.join(sorted(families)),
             'player_count': rec.count,
             'best_pct': rec.best_pct or 0.0,
             'best_votes': rec.best_votes or 0,
@@ -309,6 +321,8 @@ def _compute_rows_context(request):
             'score_factor': round(score_factor_val, 3),
             'playable': 'Playable' if pc_unadj >= 150 else 'Not Playable',
         })
+
+    rows_total = rows_count if rows_count else len(rows)
 
     start_idx = (page_obj.number - 1) * page_size
     end_idx = start_idx + len(rows)
@@ -364,6 +378,7 @@ def _compute_rows_context(request):
     return {
         'rows': rows,
         'rows_count': rows_count,
+        'rows_total': rows_total,
         'sort': sort,
         'dir': direction,
         'q': q,
@@ -405,7 +420,7 @@ def games_rows(request):
     html = render_to_string('partials/games_rows.html', {'rows': context['rows']}, request=request)
     return JsonResponse({
         'html': html,
-        'count': context.get('rows_count', len(context['rows'])),
+        'count': context.get('rows_total', context.get('rows_count', len(context['rows']))),
         'page': context['page'],
         'page_size': context['page_size'],
         'num_pages': context['num_pages'],

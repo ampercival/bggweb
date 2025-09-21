@@ -315,16 +315,24 @@ def _sync_catalog(
         progress_callback(progress_target)
 
 
-def run_fetch_top_n(job_id: int, n: int):
+def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
     job.progress = 0
     job.total = n
-    job.save(update_fields=["status", "progress", "total"])
+    params = dict(job.params or {})
+    if ranks_zip_url:
+        params['zip_url'] = ranks_zip_url
+    job.params = params
+    job.save(update_fields=['status', 'progress', 'total', 'params'])
+
+    ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
     try:
-        base_map = client.fetch_top_games_scrape(n)
+        if not ranks_zip_url:
+            raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
+        base_map = client.fetch_top_games_ranks(n, zip_url=ranks_zip_url)
         ids = list(base_map.keys())
         combined = {gid: dict(base_map[gid]) for gid in ids}
         job.total = len(ids)
@@ -388,13 +396,15 @@ def start_background(target, *args, **kwargs):
     return th
 
 
-def run_refresh(job_id: int, n: int, username: str | None, batch_size: int):
+def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
     job.progress = 0
     job.total = n
-    params = job.params or {}
-    params["batch_size"] = batch_size
+    params = dict(job.params or {})
+    params['batch_size'] = batch_size
+    if ranks_zip_url:
+        params['zip_url'] = ranks_zip_url
     params["phases"] = {
         "top_n": {
             "status": "running",
@@ -423,8 +433,12 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int):
     job.params = params
     job.save(update_fields=["status", "progress", "total", "params"])
 
+    ranks_zip_url = params.get('zip_url')
+
     client = BGGClient()
     try:
+        if not ranks_zip_url:
+            raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
         last_save = 0.0
 
         def save_throttled(fields):
@@ -445,7 +459,7 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int):
             job.progress = ph["progress"]
             save_throttled(["params", "progress"])
 
-        top_map = client.fetch_top_games_scrape(n, on_progress=on_top_progress)
+        top_map = client.fetch_top_games_ranks(n, on_progress=on_top_progress, zip_url=ranks_zip_url)
         top_ids = list(top_map.keys())
         params_local = job.params or {}
         params_local["phases"]["top_n"].update(
