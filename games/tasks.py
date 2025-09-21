@@ -1,5 +1,6 @@
 import threading
 import time
+import logging
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -13,6 +14,8 @@ from .models import (
     PlayerCountRecommendation,
 )
 from .services.bgg_client import BGGClient
+
+log = logging.getLogger(__name__)
 
 
 def _to_float(value):
@@ -325,6 +328,7 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         params['zip_url'] = ranks_zip_url
     job.params = params
     job.save(update_fields=['status', 'progress', 'total', 'params'])
+    log.info('Job %s: starting Top N fetch (n=%s)', job.id, n)
 
     ranks_zip_url = params.get('zip_url')
 
@@ -332,24 +336,31 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     try:
         if not ranks_zip_url:
             raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
+        log.info('Job %s: requesting Top N data from BGG', job.id)
         base_map = client.fetch_top_games_ranks(n, zip_url=ranks_zip_url)
         ids = list(base_map.keys())
+        log.info('Job %s: received %s ranked games', job.id, len(ids))
         combined = {gid: dict(base_map[gid]) for gid in ids}
         job.total = len(ids)
         job.progress = len(ids)
         job.save(update_fields=["total", "progress"])
 
+        log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        log.info('Job %s: details fetched for Top N job', job.id)
 
         _sync_catalog(combined, details, pcounts, owned_ids=set(), username=None, prune=True)
+        log.info('Job %s: catalog sync complete for Top N', job.id)
 
         job.status = "done"
         job.finished_at = timezone.now()
         job.progress = job.total
         job.save(update_fields=["status", "finished_at", "progress"])
+        log.info('Job %s: Top N fetch finished successfully', job.id)
     except Exception as e:
+        log.exception('Job %s: Top N job failed', job.id)
         job.status = "error"
-        job.error = str(e)
+        job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
 
@@ -359,26 +370,34 @@ def run_fetch_collection(job_id: int, username: str):
     job.status = "running"
     job.progress = 0
     job.save(update_fields=["status", "progress"])
+    log.info('Job %s: starting collection fetch for user %s', job.id, username)
 
     client = BGGClient()
     try:
+        log.info('Job %s: requesting owned collection for %s', job.id, username)
         owned_map = client.fetch_owned_collection(username)
         ids = list(owned_map.keys())
+        log.info('Job %s: collection returned %s items', job.id, len(ids))
         combined = {gid: dict(owned_map[gid]) for gid in ids}
         job.total = len(ids)
         job.progress = len(ids)
         job.save(update_fields=["total", "progress"])
 
+        log.info('Job %s: fetching details for %s collection games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        log.info('Job %s: details fetched for collection job', job.id)
 
         _sync_catalog(combined, details, pcounts, owned_ids=set(ids), username=username, prune=False)
+        log.info('Job %s: catalog sync complete for collection job', job.id)
 
         job.status = "done"
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "finished_at"])
+        log.info('Job %s: collection fetch finished successfully', job.id)
     except Exception as e:
+        log.exception('Job %s: collection job failed', job.id)
         job.status = "error"
-        job.error = str(e)
+        job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
 
@@ -432,6 +451,7 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
     }
     job.params = params
     job.save(update_fields=["status", "progress", "total", "params"])
+    log.info('Job %s: starting refresh (n=%s, username=%s, batch=%s)', job.id, n, username or '-', batch_size)
 
     ranks_zip_url = params.get('zip_url')
 
@@ -459,8 +479,10 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             job.progress = ph["progress"]
             save_throttled(["params", "progress"])
 
+        log.info('Job %s: fetching Top N list (n=%s)', job.id, n)
         top_map = client.fetch_top_games_ranks(n, on_progress=on_top_progress, zip_url=ranks_zip_url)
         top_ids = list(top_map.keys())
+        log.info('Job %s: Top N list returned %s games', job.id, len(top_ids))
         params_local = job.params or {}
         params_local["phases"]["top_n"].update(
             {
@@ -505,8 +527,10 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
                 job.params = params_inner
                 save_throttled(["params"])
 
+            log.info('Job %s: fetching owned collection for %s', job.id, username)
             owned_map = client.fetch_owned_collection(username, on_progress=on_coll_progress)
             owned_ids = set(owned_map.keys())
+            log.info('Job %s: owned collection returned %s items', job.id, len(owned_ids))
             params_local = job.params or {}
             if "collection" in params_local.get("phases", {}):
                 params_local["phases"]["collection"].update(
@@ -554,8 +578,11 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
         job.params = params_local
         job.total = len(all_ids)
         job.save(update_fields=["total", "params"])
+        last_details_logged = -max(batch_size * 5, 100)
+        last_details_status = None
 
         def on_details_progress(**kw):
+            nonlocal last_details_logged, last_details_status
             params_inner = job.params or {}
             ph = params_inner.get("phases", {}).get("details", {})
             if "processed" in kw:
@@ -564,14 +591,36 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
                 ph["total"] = kw["total"]
             if "batch" in kw:
                 ph["batch"] = kw["batch"]
+            status_val = kw.get("status")
+            if status_val:
+                ph["status"] = status_val
             ph["updated_at"] = timezone.now().isoformat()
             params_inner["phases"]["details"] = ph
             job.params = params_inner
             job.progress = ph.get("progress", job.progress)
             job.total = ph.get("total", job.total)
+
+            processed = ph.get("progress") or 0
+            total_local = ph.get("total") or 0
+            batch_local = ph.get("batch") or batch_size
+            if status_val and status_val != last_details_status:
+                log.info('Job %s: details phase status changed to %s', job.id, status_val)
+                last_details_status = status_val
+            should_log = False
+            if total_local:
+                if processed == 0 or processed >= total_local:
+                    should_log = True
+                elif processed - last_details_logged >= max(batch_local * 5, 100):
+                    should_log = True
+            if should_log:
+                log.info('Job %s: details processed %s/%s (batch=%s)', job.id, processed, total_local or '?', batch_local)
+                last_details_logged = processed
+
             save_throttled(["params", "progress", "total"])
 
+        log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(all_ids), batch_size)
         details, pcounts = client.fetch_details_batches(all_ids, batch_size=batch_size, on_progress=on_details_progress)
+        log.info('Job %s: details phase completed', job.id)
 
         params_local = job.params or {}
         if "details" in params_local.get("phases", {}):
@@ -599,10 +648,13 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             )
             job.params = params_local
             job.save(update_fields=["params"])
+            log.info('Job %s: applying updates for %s games', job.id, len(all_ids))
 
         apply_total = len(all_ids)
+        last_apply_logged = -1
 
         def on_apply_progress(value: int):
+            nonlocal last_apply_logged
             if apply_total <= 0:
                 return
             params_inner = job.params or {}
@@ -615,6 +667,9 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             params_inner["phases"]["apply"] = ph
             job.params = params_inner
             job.save(update_fields=["params"])
+            if new_progress != last_apply_logged:
+                log.info('Job %s: apply phase %s/%s', job.id, new_progress, apply_total)
+                last_apply_logged = new_progress
 
         progress_cb = on_apply_progress if apply_total > 0 else None
         progress_total = apply_total if apply_total > 0 else None
@@ -628,6 +683,7 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             progress_callback=progress_cb,
             progress_total=progress_total,
         )
+        log.info('Job %s: catalog sync complete for refresh', job.id)
 
         params_local = job.params or {}
         if "apply" in params_local.get("phases", {}):
@@ -640,13 +696,17 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
                 }
             )
             job.params = params_local
+            log.info('Job %s: apply phase complete', job.id)
 
         job.status = "done"
         job.finished_at = timezone.now()
         job.progress = job.total
         job.save(update_fields=["status", "finished_at", "progress", "params"])
+        log.info('Job %s: refresh job finished successfully', job.id)
     except Exception as e:
+        log.exception('Job %s: refresh job failed', job.id)
         job.status = "error"
-        job.error = str(e)
+        job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
+

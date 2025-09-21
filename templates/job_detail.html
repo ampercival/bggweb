@@ -25,9 +25,7 @@
   <div class="row">Progress: <b id="progress">{{ job.progress }} / {{ job.total }}</b></div>
   <div class="progress"><div id="bar" class="bar"></div></div>
 
-  {% if job.error %}
-    <p class="error">{{ job.error }}</p>
-  {% endif %}
+  <p id="job-error" class="error"{% if not job.error %} style="display:none"{% endif %}>{{ job.error }}</p>
 
   <h2>Phases</h2>
     <div id="phases">
@@ -164,6 +162,16 @@
       document.getElementById('progress').textContent = `${data.progress} / ${data.total}`;
       const percent = pct(data.progress, data.total);
       document.getElementById('bar').style.width = percent + '%';
+      const errorEl = document.getElementById('job-error');
+      if (errorEl) {
+        if (data.error) {
+          errorEl.textContent = data.error;
+          errorEl.style.display = 'block';
+        } else {
+          errorEl.textContent = '';
+          errorEl.style.display = 'none';
+        }
+      }
       if (data.phases) updatePhases(data.phases);
       if (data.status === 'done' || data.status === 'error') {
         document.getElementById('done').style.display = (data.status === 'done') ? 'block' : 'none';

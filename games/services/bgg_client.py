@@ -1,6 +1,7 @@
 import time
 import math
 import logging
+import os
 from typing import Dict, List, Tuple
 from urllib.parse import urlencode
 import csv
@@ -15,31 +16,78 @@ log = logging.getLogger(__name__)
 
 
 DEFAULT_HEADERS = {
-    "User-Agent": "bggweb/1.0 (+https://example.local)"
+    "User-Agent": "bggweb/1.0 (+https://bggweb.onrender.com/)"
 }
 
 
 class BGGClient:
-    def __init__(self, session: requests.Session | None = None, throttle_sec: float = 1.0):
+    def __init__(self, session: requests.Session | None = None, throttle_sec: float | None = None, detail_throttle_sec: float | None = None):
         self.session = session or requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
-        self.throttle_sec = throttle_sec
+        throttle_env = os.getenv("BGG_THROTTLE_SEC")
+        detail_env = os.getenv("BGG_DETAILS_THROTTLE_SEC")
+        if throttle_sec is None and throttle_env:
+            try:
+                throttle_sec = float(throttle_env)
+            except ValueError:
+                throttle_sec = None
+        if detail_throttle_sec is None and detail_env:
+            try:
+                detail_throttle_sec = float(detail_env)
+            except ValueError:
+                detail_throttle_sec = None
+        self.throttle_sec = throttle_sec if throttle_sec is not None else 1.5
+        default_detail = max(self.throttle_sec, 2.5)
+        self.detail_throttle_sec = (
+            detail_throttle_sec if detail_throttle_sec is not None else default_detail
+        )
 
     def _sleep(self, seconds: float | None = None):
         time.sleep(seconds if seconds is not None else self.throttle_sec)
 
-    def _get(self, url: str, *, max_retries: int = 5, backoff: float = 2.0) -> requests.Response:
+    def _get(
+        self,
+        url: str,
+        *,
+        max_retries: int = 5,
+        backoff: float = 2.0,
+        fatal_statuses: set[int] | None = None,
+    ) -> requests.Response:
         retries = 0
+        rate_limit_retries = 0
+        max_rate_retries = max(max_retries * 2, 6)
         while True:
             try:
                 resp = self.session.get(url, timeout=60)
                 if resp.status_code == 429:
-                    retries += 1
-                    wait = min(10 * retries, 60)
-                    log.warning("429 rate limit. sleeping %ss", wait)
+                    rate_limit_retries += 1
+                    retry_after = resp.headers.get("Retry-After")
+                    wait = None
+                    if retry_after:
+                        try:
+                            wait = float(retry_after)
+                        except ValueError:
+                            wait = None
+                    if wait is None:
+                        wait = min(15 * rate_limit_retries, 90)
+                    log.warning(
+                        "429 rate limit from BGG (attempt %s). Sleeping %ss",
+                        rate_limit_retries,
+                        wait,
+                    )
                     self._sleep(wait)
+                    if rate_limit_retries >= max_rate_retries:
+                        raise RuntimeError(
+                            "BGG rate limit hit repeatedly while fetching data."
+                        )
                     continue
-                # Special-case: BGG sometimes returns 400 with a plain text message for too many ids
+                rate_limit_retries = 0
+                if fatal_statuses and resp.status_code in fatal_statuses:
+                    log.error("Fatal HTTP status %s for %s; aborting request.", resp.status_code, url)
+                    raise RuntimeError(
+                        "BoardGameGeek ranks download returned HTTP %s. "
+                        "Generate a fresh data-dump link and try again." % resp.status_code
+                    )
                 if resp.status_code == 400:
                     try:
                         body = resp.text.lower()
@@ -53,16 +101,19 @@ class BGGClient:
                 retries += 1
                 if retries > max_retries:
                     raise
-                wait = backoff ** retries
+                wait = min(backoff ** retries, 120)
                 log.warning("HTTP error %s. retry %s in %ss", e, retries, wait)
                 self._sleep(wait)
+
 
     # -------- Scrape Top N (ranked/advanced search approximation) --------
     def fetch_top_games_ranks(self, n: int, on_progress=None, zip_url: str | None = None) -> Dict[str, Dict]:
         if not zip_url:
             raise RuntimeError('A ranks ZIP URL is required. Paste the "Click to Download" link from the BGG data dumps page.')
         try:
-            zip_resp = self._get(zip_url)
+            zip_resp = self._get(zip_url, fatal_statuses={403})
+        except RuntimeError as exc:
+            raise RuntimeError('Failed to download ranks ZIP. The link may have expired or is invalid.') from exc
         except requests.RequestException as exc:
             raise RuntimeError('Failed to download ranks ZIP. The link may have expired.') from exc
 
@@ -150,7 +201,7 @@ class BGGClient:
                 "floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&" +
                 "floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=&searchuser=&playerrangetype=normal&B1=Submit&sortdir=asc"
             )
-            resp = self._get(url)
+            resp = self._get(url, max_retries=8)
             soup = BeautifulSoup(resp.text, 'html.parser')
             table = soup.find('table', {'class': 'collection_table'})
             if not table:
@@ -283,11 +334,12 @@ class BGGClient:
         idx = 0
         current_batch = batch_size
         total_ids = len(ids)
+        queue_retries = 0
         while idx < len(ids):
             chunk = ids[idx: idx + current_batch]
             ids_param = ','.join(chunk)
             url = f"https://boardgamegeek.com/xmlapi2/thing?id={ids_param}&stats=1"
-            resp = self._get(url)
+            resp = self._get(url, max_retries=8)
             # Some errors return 200 with a text body complaining about limits
             text_lower = None
             try:
@@ -303,7 +355,36 @@ class BGGClient:
                 # Unknown parse error; re-raise
                 raise
 
-            for item in root.findall('item'):
+            items = root.findall('item')
+            if not items:
+                message_node = root if root.tag == 'message' else root.find('message')
+                message_text = (message_node.text or '').strip() if message_node is not None else ''
+                lower_message = message_text.lower()
+                is_queue = resp.status_code == 202 or 'try again' in lower_message or 'processing' in lower_message or 'queued' in lower_message
+                if message_text and is_queue:
+                    queue_retries += 1
+                    wait = min(5 + queue_retries * 5, 60)
+                    log.info(
+                        "BGG queueing details for %s ids (attempt %s). Waiting %ss",
+                        len(chunk),
+                        queue_retries,
+                        wait,
+                    )
+                    if on_progress:
+                        try:
+                            on_progress(status="waiting")
+                        except Exception:
+                            pass
+                    self._sleep(wait)
+                    if queue_retries >= 12:
+                        snippet = message_text[:120]
+                        raise RuntimeError(
+                            f"BGG is still preparing game details after multiple attempts: {snippet or 'please retry later.'}"
+                        )
+                    continue
+            queue_retries = 0
+
+            for item in items:
                 gid = item.get('id')
                 year = None
                 yp = item.find('yearpublished')
@@ -404,9 +485,10 @@ class BGGClient:
             idx += len(chunk)
             if on_progress:
                 try:
-                    on_progress(processed=min(idx, total_ids), total=total_ids, batch=current_batch)
+                    on_progress(processed=min(idx, total_ids), total=total_ids, batch=current_batch, status="running")
                 except Exception:
                     pass
             current_batch = min(batch_size, max_ids)
-            self._sleep(1.0)
+            self._sleep(self.detail_throttle_sec)
         return updated_games, player_counts
+
