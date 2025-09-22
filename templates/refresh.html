@@ -1,7 +1,7 @@
 
 {% extends 'base.html' %}
 
-{% block title %}Refresh Data Â&middot; BGG Player Count Optimizer{% endblock %}
+{% block title %}Refresh Data &middot; BGG Player Count Optimizer{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -156,7 +156,7 @@
           {% csrf_token %}
           <input type="hidden" name="action" value="delete_user">
           <input type="hidden" name="username" value="{{ user }}">
-          <button type="submit" aria-label="Remove {{ user }}">âœ•</button>
+          <button type="submit" aria-label="Remove {{ user }}">x</button>
         </form>
       </li>
       {% endfor %}

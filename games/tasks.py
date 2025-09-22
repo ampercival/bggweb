@@ -712,8 +712,13 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                     "started_at": timezone.now().isoformat(),
                 }
             )
+            # Optional but handy for the UI:
+            params_local["current_phase"] = "apply"
+
             job.params = params_local
-            job.save(update_fields=["params"])
+            job.progress = 0
+            job.total = len(all_ids)
+            job.save(update_fields=["params", "progress", "total"])
             log.info('Job %s: applying updates for %s games', job.id, len(all_ids))
 
         apply_total = len(all_ids)
@@ -728,11 +733,18 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             new_progress = max(ph.get("progress", 0), min(apply_total, int(value)))
             if new_progress == ph.get("progress"):
                 return
+
             ph["progress"] = new_progress
             ph["updated_at"] = timezone.now().isoformat()
             params_inner["phases"]["apply"] = ph
+
+            # keep top-level in sync so the page can switch phases
             job.params = params_inner
-            job.save(update_fields=["params"])
+            job.progress = new_progress
+            job.total = apply_total
+            # reuse the throttler defined earlier in run_refresh
+            save_throttled(["params", "progress", "total"])
+
             if new_progress != last_apply_logged:
                 log.info('Job %s: apply phase %s/%s', job.id, new_progress, apply_total)
                 last_apply_logged = new_progress
@@ -767,7 +779,11 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         job.finished_at = timezone.now()
         job.progress = job.total
         job.save(update_fields=["status", "finished_at", "progress", "params"])
+        params_local = job.params or {}
+        params_local["current_phase"] = "done"
+        job.params = params_local
         log.info('Job %s: refresh job finished successfully', job.id)
+        
     except Exception as e:
         log.exception('Job %s: refresh job failed', job.id)
         job.status = "error"
