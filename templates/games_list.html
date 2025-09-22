@@ -1,64 +1,221 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Games</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
-    .nav a { margin-right: 1rem; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
-    th { background: #f5f5f5; position: sticky; top: 0; }
-    .small { color: #666; font-size: 0.9rem; }
-    .loading-backdrop { position: fixed; inset: 0; background: rgba(255, 255, 255, 0.6); display: none; align-items: center; justify-content: center; z-index: 999; }
-    .loading-backdrop.is-active { display: flex; }
-    .loading-spinner { width: 48px; height: 48px; border: 4px solid rgba(0, 0, 0, 0.1); border-top-color: #1976d2; border-radius: 50%; animation: spin 1s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-  <script>
-    function filterTable() {
-      const q = (document.getElementById('q').value || '').toLowerCase();
-      const rows = document.querySelectorAll('tbody tr');
-      rows.forEach(tr => {
-        const text = tr.textContent.toLowerCase();
-        tr.style.display = text.includes(q) ? '' : 'none';
-      });
+{% extends 'base.html' %}
+
+{% block title %}Games Catalog - BGG Player Count Optimizer{% endblock %}
+
+{% block extra_head %}
+<style>
+  .page-lede {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .page-lede .intro {
+    max-width: 60ch;
+  }
+  .page-lede p {
+    color: var(--text-muted);
+    margin: 0.35rem 0 0;
+  }
+  .counts-pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    min-width: 240px;
+    box-shadow: var(--shadow);
+  }
+  .counts-pill strong {
+    font-weight: 700;
+  }
+  .loading-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(245,247,251,0.78);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 80;
+  }
+  .loading-backdrop.is-active {
+    display: flex;
+  }
+  .loading-spinner {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 4px solid rgba(26,110,240,0.15);
+    border-top-color: var(--primary);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .catalog-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 320px) 1fr;
+    gap: 2rem;
+    align-items: start;
+  }
+  .filters-card {
+    position: sticky;
+    top: 5.5rem;
+    max-height: calc(100vh - 6rem);
+    overflow: auto;
+  }
+  .filters-grid {
+    display: grid;
+    gap: 1.15rem;
+  }
+  .inline-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  #categoriesList,
+  .owner-cloud {
+    max-height: 210px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.6rem;
+    background: var(--surface);
+  }
+  #categoriesTop, #categoriesListRest,
+  .owner-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+  }
+  .cat-item,
+  .owner-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    font-size: 0.85rem;
+  }
+  .range-field {
+    display: grid;
+    gap: 0.3rem;
+  }
+  .range-line {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .range-value {
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 42px;
+    text-align: right;
+  }
+  .results-card {
+    display: grid;
+    gap: 1.2rem;
+  }
+  .table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+  }
+  .table-wrapper {
+    overflow-x: auto;
+    border-radius: 16px;
+  }
+  #pager {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .pager-group {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .pager-btn {
+    padding: 0.4rem 0.8rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s ease;
+  }
+  .pager-btn:hover {
+    background: var(--surface-muted);
+  }
+  details#categoriesMore {
+    border-top: 1px solid var(--border);
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+  }
+  details#categoriesMore summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--primary);
+  }
+  .form-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .ghost-button.small,
+  .button.small {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9rem;
+  }
+  @media (max-width: 1024px) {
+    .catalog-layout {
+      grid-template-columns: 1fr;
     }
-  </script>
-</head>
-<body>
-  <div class="nav">
-    <a href="{% url 'home' %}">Home</a>
-    <a href="{% url 'games_list' %}">View Games</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'refresh' %}">Refresh Data</a>
-    {% endif %}
-    <a href="{% url 'export_csv' %}">Export CSV</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'admin:index' %}">Admin</a>
-    {% endif %}
+    .filters-card {
+      position: static;
+      max-height: none;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-lede">
+  <div class="intro">
+    <h1>Games catalog</h1>
+    <p>Filter and sort the combined BGG Top N list and tracked collections to uncover the best fit for your next game session.</p>
   </div>
-  <div id="loadingIndicator" class="loading-backdrop" aria-hidden="true">
-    <div class="loading-spinner" role="status" aria-label="Loading"></div>
+  <div class="counts-pill">
+    Showing <strong id="rangeStart">{{ start_idx }}</strong> to <strong id="rangeEnd">{{ end_idx }}</strong>
+    of <strong id="rowsCount">{{ rows_total }}</strong> rows | Total games indexed: <strong id="totalGames">{{ total_games }}</strong>
   </div>
-  <h1>Games</h1>
-  <div class="small">
-    Showing <span id="rangeStart">{{ start_idx }}</span>–<span id="rangeEnd">{{ end_idx }}</span>
-    of <span id="rowsCount">{{ rows_total }}</span> rows &middot; Total games in database: <span id="totalGames">{{ total_games }}</span>
-  </div>
-  <div style="margin: 8px 0 12px 0;">
-    <form id="filtersForm" method="get" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px 16px; align-items:end;">
-      <div id="categoriesFilter" style="grid-column: 1 / -1;">
-        <label>Categories</label>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
-          <input id="categoriesSearch" type="text" placeholder="Search categories..." style="padding:6px 8px; min-width:240px;">
-          <button type="button" id="clearCategories">Clear</button>
+</section>
+
+<div id="loadingIndicator" class="loading-backdrop" aria-hidden="true">
+  <div class="loading-spinner" role="status" aria-label="Loading"></div>
+</div>
+
+<div class="catalog-layout">
+  <aside class="filters-card card" aria-label="Filters">
+    <form id="filtersForm" method="get" class="filters-grid">
+      <div class="filter-field filter-field--full">
+        <label for="categoriesSearch">Categories</label>
+        <div class="inline-controls">
+          <input id="categoriesSearch" type="text" placeholder="Search categories...">
+          <button type="button" id="clearCategories" class="ghost-button small">Clear</button>
         </div>
-        <div id="categoriesList" style="max-height: 240px; overflow:auto; border:1px solid #ddd; padding:6px; border-radius:6px; background:#fff;">
+        <div id="categoriesList">
           <div id="categoriesTop">
             {% for pair in top_categories_pairs %}
             {% with cat=pair.0 cnt=pair.1 %}
-            <label class="cat-item" data-name="{{ cat|lower }}" style="display:inline-flex; align-items:center; gap:6px; margin:4px 10px 4px 0;">
+            <label class="cat-item" data-name="{{ cat|lower }}">
               <input type="checkbox" name="categories" value="{{ cat }}" {% if cat in selected_categories %}checked{% endif %}>
               <span>{{ cat }} ({{ cnt }})</span>
             </label>
@@ -68,10 +225,10 @@
           {% if other_categories %}
           <details id="categoriesMore" {% if open_more_categories %}open{% endif %}>
             <summary>Show {{ other_categories|length }} more</summary>
-            <div id="categoriesListRest" style="margin-top:6px;">
+            <div id="categoriesListRest">
               {% for pair in other_categories_pairs %}
               {% with cat=pair.0 cnt=pair.1 %}
-              <label class="cat-item" data-name="{{ cat|lower }}" style="display:inline-flex; align-items:center; gap:6px; margin:4px 10px 4px 0;">
+              <label class="cat-item" data-name="{{ cat|lower }}">
                 <input type="checkbox" name="categories" value="{{ cat }}" {% if cat in selected_categories %}checked{% endif %}>
                 <span>{{ cat }} ({{ cnt }})</span>
               </label>
@@ -82,45 +239,50 @@
           {% endif %}
         </div>
       </div>
-      <div>
-        <label>Search title</label>
-        <input name="q" value="{{ q }}" type="text" placeholder="e.g. Catan" style="padding:6px 8px; width: 100%;">
+
+      <div class="filter-field">
+        <label for="search_title">Search title</label>
+        <input id="search_title" name="q" value="{{ q }}" type="text" placeholder="Example: Catan">
       </div>
-      <div>
-        <label>Owned By</label>
+
+      <div class="filter-field">
+        <label>Owned by</label>
         {% if owner_usernames %}
-        <div style="border:1px solid #ddd; padding:6px; border-radius:6px; background:#fff; max-height:140px; overflow:auto; display:flex; flex-wrap:wrap; gap:6px 8px;">
+        <div class="owner-cloud">
           {% for owner in owner_usernames %}
-          <label class="owner-item" style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border:1px solid #ccc; border-radius:12px; background:#fefefe;">
+          <label class="owner-item">
             <input type="checkbox" name="owners" value="{{ owner }}" {% if owner in selected_owners %}checked{% endif %}>
             <span>{{ owner }}</span>
           </label>
           {% endfor %}
         </div>
-        <button type="button" id="clearOwners" style="margin-top:6px;">Clear Owners</button>
+        <button type="button" id="clearOwners" class="ghost-button small" style="margin-top:0.4rem;">Clear owners</button>
         {% else %}
-        <div class="small">No BGG owners yet. Fetch collections to enable this filter.</div>
+        <p class="note">No BGG owners yet. Fetch collections to enable this filter.</p>
         {% endif %}
       </div>
-      <div>
-        <label>Type</label>
-        <select name="type" style="padding:6px 8px; width: 100%;">
+
+      <div class="filter-field">
+        <label for="type">Type</label>
+        <select name="type" id="type">
           <option value="all" {% if type_filter == 'all' %}selected{% endif %}>All</option>
           <option value="base" {% if type_filter == 'base' %}selected{% endif %}>Base Game</option>
           <option value="expansion" {% if type_filter == 'expansion' %}selected{% endif %}>Expansion</option>
         </select>
       </div>
-      <div>
-        <label>Playable</label>
-        <select name="playable" style="padding:6px 8px; width: 100%;">
+
+      <div class="filter-field">
+        <label for="playable">Playable</label>
+        <select name="playable" id="playable">
           <option value="all" {% if playable == 'all' %}selected{% endif %}>All</option>
           <option value="playable" {% if playable == 'playable' %}selected{% endif %}>Playable</option>
           <option value="not" {% if playable == 'not' %}selected{% endif %}>Not Playable</option>
         </select>
       </div>
-      <div>
-        <label>Player Count</label>
-        <select name="player_count" style="padding:6px 8px; width: 100%;">
+
+      <div class="filter-field">
+        <label for="player_count">Player count</label>
+        <select name="player_count" id="player_count">
           <option value="all" {% if player_count == 'all' %}selected{% endif %}>All</option>
           <option value="1" {% if player_count == '1' %}selected{% endif %}>1</option>
           <option value="2" {% if player_count == '2' %}selected{% endif %}>2</option>
@@ -129,49 +291,60 @@
           <option value="5" {% if player_count == '5' %}selected{% endif %}>5</option>
           <option value="6" {% if player_count == '6' %}selected{% endif %}>6</option>
           <option value="7" {% if player_count == '7' %}selected{% endif %}>7</option>
-          <option value="8plus" {% if player_count == '8plus' %}selected{% endif %}>8+</option>
+          <option value="8plus" {% if player_count == '8plus' %}selected{% endif %}>8 or more</option>
         </select>
       </div>
-      <div>
-        <label style="display:block; margin-bottom:4px;">Year range</label>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-          <input id="min_year" name="min_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ min_year|default:year_slider_min }}" style="width:100%;">
-          <span id="min_year_val" style="min-width:48px; text-align:right;"></span>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="max_year" name="max_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ max_year|default:year_slider_max }}" style="width:100%;">
-          <span id="max_year_val" style="min-width:48px; text-align:right;"></span>
-        </div>
-      </div>
-      <div>
-        <label style="display:block; margin-bottom:4px;">Avg Rating range</label>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-          <input id="min_avg_rating" name="min_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ min_avg_rating|default:'0' }}" style="width:100%;">
-          <span id="min_avg_rating_val" style="min-width:36px; text-align:right;"></span>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="max_avg_rating" name="max_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ max_avg_rating|default:'10' }}" style="width:100%;">
-          <span id="max_avg_rating_val" style="min-width:36px; text-align:right;"></span>
+
+      <div class="filter-field">
+        <label>Year range</label>
+        <div class="range-field">
+          <div class="range-line">
+            <input id="min_year" name="min_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ min_year|default:year_slider_min }}">
+            <span class="range-value" id="min_year_val"></span>
+          </div>
+          <div class="range-line">
+            <input id="max_year" name="max_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ max_year|default:year_slider_max }}">
+            <span class="range-value" id="max_year_val"></span>
+          </div>
         </div>
       </div>
-      <div>
-        <label style="display:block; margin-bottom:4px;">Weight range</label>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-          <input id="min_weight" name="min_weight" type="range" min="0" max="5" step="0.1" value="{{ min_weight|default:'0' }}" style="width:100%;">
-          <span id="min_weight_val" style="min-width:36px; text-align:right;"></span>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="max_weight" name="max_weight" type="range" min="0" max="5" step="0.1" value="{{ max_weight|default:'5' }}" style="width:100%;">
-          <span id="max_weight_val" style="min-width:36px; text-align:right;"></span>
+
+      <div class="filter-field">
+        <label>Average rating</label>
+        <div class="range-field">
+          <div class="range-line">
+            <input id="min_avg_rating" name="min_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ min_avg_rating|default:'0' }}">
+            <span class="range-value" id="min_avg_rating_val"></span>
+          </div>
+          <div class="range-line">
+            <input id="max_avg_rating" name="max_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ max_avg_rating|default:'10' }}">
+            <span class="range-value" id="max_avg_rating_val"></span>
+          </div>
         </div>
       </div>
-      <div>
-        <label>Min voters</label>
-        <input name="min_voters" type="number" min="0" value="{{ min_voters }}" style="padding:6px 8px; width:100%;">
+
+      <div class="filter-field">
+        <label>Weight</label>
+        <div class="range-field">
+          <div class="range-line">
+            <input id="min_weight" name="min_weight" type="range" min="0" max="5" step="0.1" value="{{ min_weight|default:'0' }}">
+            <span class="range-value" id="min_weight_val"></span>
+          </div>
+          <div class="range-line">
+            <input id="max_weight" name="max_weight" type="range" min="0" max="5" step="0.1" value="{{ max_weight|default:'5' }}">
+            <span class="range-value" id="max_weight_val"></span>
+          </div>
+        </div>
       </div>
-      <div>
-        <label>Rows per page</label>
-        <select name="page_size" id="page_size" style="padding:6px 8px; width:100%;">
+
+      <div class="filter-field">
+        <label for="min_voters">Minimum voters</label>
+        <input id="min_voters" name="min_voters" type="number" min="0" value="{{ min_voters }}" placeholder="Example: 1000">
+      </div>
+
+      <div class="filter-field">
+        <label for="page_size">Rows per page</label>
+        <select name="page_size" id="page_size">
           <option value="50" {% if page_size|stringformat:'s' == '50' %}selected{% endif %}>50</option>
           <option value="100" {% if page_size|stringformat:'s' == '100' %}selected{% endif %}>100</option>
           <option value="200" {% if page_size|stringformat:'s' == '200' %}selected{% endif %}>200</option>
@@ -179,140 +352,92 @@
           <option value="1000" {% if page_size|stringformat:'s' == '1000' %}selected{% endif %}>1000</option>
         </select>
       </div>
+
       <input type="hidden" name="page" id="page_input" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="dir" value="{{ dir }}">
-      <div style="display:flex; gap:10px;">
-        <button type="submit">Apply</button>
-        <a href="{% url 'games_list' %}">Clear</a>
-        <button type="button" id="resetDefaults">Reset to defaults</button>
+
+      <div class="form-actions">
+        <button type="submit" class="button primary small">Apply filters</button>
+        <a class="ghost-button small" href="{% url 'games_list' %}">Clear all</a>
+        <button type="button" id="resetDefaults" class="ghost-button small">Reset defaults</button>
       </div>
     </form>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        {% with qs=qs_nosort %}
-        <th>
-          <a href="?sort=score_factor&dir={% if sort == 'score_factor' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="score_factor" data-next-dir="{% if sort == 'score_factor' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Score Factor<span class="sort-arrow">{% if sort == 'score_factor' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=title&dir={% if sort == 'title' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="title" data-next-dir="{% if sort == 'title' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Game Title<span class="sort-arrow">{% if sort == 'title' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=game_id&dir={% if sort == 'game_id' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="game_id" data-next-dir="{% if sort == 'game_id' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Game ID<span class="sort-arrow">{% if sort == 'game_id' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=year&dir={% if sort == 'year' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="year" data-next-dir="{% if sort == 'year' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Year<span class="sort-arrow">{% if sort == 'year' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=bgg_rank&dir={% if sort == 'bgg_rank' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="bgg_rank" data-next-dir="{% if sort == 'bgg_rank' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            BGG Rank<span class="sort-arrow">{% if sort == 'bgg_rank' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=avg_rating&dir={% if sort == 'avg_rating' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="avg_rating" data-next-dir="{% if sort == 'avg_rating' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Average Rating<span class="sort-arrow">{% if sort == 'avg_rating' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=num_voters&dir={% if sort == 'num_voters' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="num_voters" data-next-dir="{% if sort == 'num_voters' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Number of Voters<span class="sort-arrow">{% if sort == 'num_voters' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=weight&dir={% if sort == 'weight' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="weight" data-next-dir="{% if sort == 'weight' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Weight<span class="sort-arrow">{% if sort == 'weight' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=weight_votes&dir={% if sort == 'weight_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="weight_votes" data-next-dir="{% if sort == 'weight_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Weight Votes<span class="sort-arrow">{% if sort == 'weight_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>Owners</th>
-        <th>
-          <a href="?sort=type&dir={% if sort == 'type' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="type" data-next-dir="{% if sort == 'type' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Type<span class="sort-arrow">{% if sort == 'type' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>Families</th>
-        <th>
-          <a href="?sort=categories_str&dir={% if sort == 'categories_str' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="categories_str" data-next-dir="{% if sort == 'categories_str' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Categories<span class="sort-arrow">{% if sort == 'categories_str' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=player_count&dir={% if sort == 'player_count' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="player_count" data-next-dir="{% if sort == 'player_count' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Player Count<span class="sort-arrow">{% if sort == 'player_count' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=best_pct&dir={% if sort == 'best_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="best_pct" data-next-dir="{% if sort == 'best_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Best %<span class="sort-arrow">{% if sort == 'best_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=best_votes&dir={% if sort == 'best_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="best_votes" data-next-dir="{% if sort == 'best_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Best Votes<span class="sort-arrow">{% if sort == 'best_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=rec_pct&dir={% if sort == 'rec_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="rec_pct" data-next-dir="{% if sort == 'rec_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Rec. %<span class="sort-arrow">{% if sort == 'rec_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=rec_votes&dir={% if sort == 'rec_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="rec_votes" data-next-dir="{% if sort == 'rec_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Rec. Votes<span class="sort-arrow">{% if sort == 'rec_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=not_pct&dir={% if sort == 'not_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="not_pct" data-next-dir="{% if sort == 'not_pct' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Not %<span class="sort-arrow">{% if sort == 'not_pct' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=not_votes&dir={% if sort == 'not_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="not_votes" data-next-dir="{% if sort == 'not_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Not Votes<span class="sort-arrow">{% if sort == 'not_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=total_votes&dir={% if sort == 'total_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="total_votes" data-next-dir="{% if sort == 'total_votes' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Total Votes<span class="sort-arrow">{% if sort == 'total_votes' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=pc_score&dir={% if sort == 'pc_score' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="pc_score" data-next-dir="{% if sort == 'pc_score' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Player Count Score<span class="sort-arrow">{% if sort == 'pc_score' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        <th>
-          <a href="?sort=playable&dir={% if sort == 'playable' and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="playable" data-next-dir="{% if sort == 'playable' and dir == 'desc' %}asc{% else %}desc{% endif %}">
-            Playable<span class="sort-arrow">{% if sort == 'playable' %}{% if dir == 'desc' %} &darr;{% else %} &uarr;{% endif %}{% endif %}</span>
-          </a>
-        </th>
-        {% endwith %}
-      </tr>
-    </thead>
-    <tbody id="rows">
-      {% include 'partials/games_rows.html' %}
-    </tbody>
-  </table>
-  <div id="pager" style="margin-top:10px; display:flex; gap:8px; align-items:center;">
-    <button type="button" id="prevPage">Prev</button>
-    <span>Page <span id="pageDisplay">{{ page }}</span> of <span id="pagesTotal">{{ num_pages }}</span></span>
-    <button type="button" id="nextPage">Next</button>
-  </div>
-  <script>
+  </aside>
+
+  <section class="results-card">
+    <div class="table-toolbar">
+      <div>
+        <strong>Live results</strong>
+        <p class="note" style="margin:0.25rem 0 0;">Sort columns or adjust filters to focus on the games that will work best for your group.</p>
+      </div>
+      <div class="pager-group">
+        <button type="button" id="prevPage" class="pager-btn" aria-label="Previous page">Prev</button>
+        <span>Page <strong id="pageDisplay">{{ page }}</strong> of <strong id="pagesTotal">{{ num_pages }}</strong></span>
+        <button type="button" id="nextPage" class="pager-btn" aria-label="Next page">Next</button>
+      </div>
+    </div>
+
+    <div class="table-wrapper" role="region" aria-live="polite">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for column, label in column_label_pairs %}
+              ('score_factor', 'Score'),
+              ('title', 'Game'),
+              ('game_id', 'Game ID'),
+              ('year', 'Year'),
+              ('bgg_rank', 'BGG Rank'),
+              ('avg_rating', 'Avg rating'),
+              ('num_voters', 'Voters'),
+              ('weight', 'Weight'),
+              ('weight_votes', 'Weight votes'),
+              ('owners', 'Owners'),
+              ('type', 'Type'),
+              ('families', 'Families'),
+              ('categories', 'Categories'),
+              ('player_count', 'Players'),
+              ('best_pct', 'Best %'),
+              ('best_votes', 'Best votes'),
+              ('rec_pct', 'Rec %'),
+              ('rec_votes', 'Rec votes'),
+              ('not_pct', 'Not %'),
+              ('not_votes', 'Not votes'),
+              ('total_votes', 'Total votes'),
+              ('pc_score', 'PC score'),
+              ('playable', 'Playable')
+            {% if column == 'score_factor' or column == 'title' or column == 'year' or column == 'bgg_rank' or column == 'avg_rating' or column == 'num_voters' or column == 'weight' or column == 'pc_score' or column == 'playable' %}
+            <th>
+              <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="{{ column }}" data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
+                {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
+              </a>
+            </th>
+            {% else %}
+            <th>{{ label }}</th>
+            {% endif %}
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody id="rows">
+          {% include 'partials/games_rows.html' with rows=rows %}
+        </tbody>
+      </table>
+    </div>
+
+    <div id="pager">
+      <div class="pager-group">
+        <button type="button" id="prevPage" class="pager-btn">Previous</button>
+        <span>Page <strong id="pageDisplay">{{ page }}</strong> of <strong id="pagesTotal">{{ num_pages }}</strong></span>
+        <button type="button" id="nextPage" class="pager-btn">Next</button>
+      </div>
+      <p class="note" style="margin:0;">Keyboard tip: once the table is focused you can scroll horizontally with the arrow keys.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
     function clampRanges(minEl, maxEl) {
       const minv = parseFloat(minEl.value);
       const maxv = parseFloat(maxEl.value);
@@ -343,108 +468,102 @@
         document.getElementById('max_year_val').textContent = parseInt(maxY.value);
       }
     }
-    ['min_avg_rating','max_avg_rating','min_weight','max_weight','min_year','max_year'].forEach(id => {
-      const el = document.getElementById(id);
+    ['min_avg_rating','max_avg_rating','min_weight','max_weight','min_year','max_year'].forEach(function(id) {
+      var el = document.getElementById(id);
       if (el) el.addEventListener('input', updateLabels);
     });
     updateLabels();
 
-    const loadingIndicator = document.getElementById('loadingIndicator');
+    var loadingIndicator = document.getElementById('loadingIndicator');
 
-    // Build query string from the form
     function buildQuery() {
-      const form = document.getElementById('filtersForm');
-      const fd = new FormData(form);
-      // Convert checkbox on/off to presence of value
-      const params = new URLSearchParams();
-      for (const [k, v] of fd.entries()) {
-        // Skip empty values
-        if (v === null || v === '') continue;
-        if (k === 'categories' || k === 'owners') {
-          params.append(k, v);
+      var form = document.getElementById('filtersForm');
+      var fd = new FormData(form);
+      var params = new URLSearchParams();
+      for (var pair of fd.entries()) {
+        var key = pair[0];
+        var value = pair[1];
+        if (value === null || value === '') continue;
+        if (key === 'categories' || key === 'owners') {
+          params.append(key, value);
         } else {
-          params.set(k, v);
+          params.set(key, value);
         }
       }
       return params.toString();
     }
 
     async function updateRows() {
-      const qs = buildQuery();
-      const url = new URL(window.location.origin + '{% url 'games_rows' %}');
+      var qs = buildQuery();
+      var url = new URL(window.location.origin + "{% url 'games_rows' %}");
       url.search = qs;
       if (loadingIndicator) loadingIndicator.classList.add('is-active');
       try {
-        const resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
+        var resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
         if (!resp.ok) return;
-        const data = await resp.json();
-        const tbody = document.getElementById('rows');
+        var data = await resp.json();
+        var tbody = document.getElementById('rows');
         if (tbody) tbody.innerHTML = data.html;
-        const countEl = document.getElementById('rowsCount');
+        var countEl = document.getElementById('rowsCount');
         if (countEl) countEl.textContent = data.count;
-        const totalGamesEl = document.getElementById('totalGames');
+        var totalGamesEl = document.getElementById('totalGames');
         if (totalGamesEl && Object.prototype.hasOwnProperty.call(data, 'total_games') && data.total_games != null) {
           totalGamesEl.textContent = data.total_games;
         }
         if (sortInput && dirInput) {
           updateSortIndicators(sortInput.value || 'score_factor', dirInput.value || 'desc');
         }
-        // Update pagination indicators
-        const rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
-        const re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
-        const pd = document.getElementById('pageDisplay'); if (pd) pd.textContent = data.page;
-        const pt = document.getElementById('pagesTotal'); if (pt) pt.textContent = data.num_pages;
-        // Update the visible URL (preserve sort/filters)
-        const pageUrl = new URL(window.location.href);
+        var rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
+        var re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
+        var pd = document.getElementById('pageDisplay'); if (pd) pd.textContent = data.page;
+        var pt = document.getElementById('pagesTotal'); if (pt) pt.textContent = data.num_pages;
+        var pageUrl = new URL(window.location.href);
         pageUrl.search = qs;
         window.history.replaceState({}, '', pageUrl);
       } catch (e) {
-        // Silent failure; keep current content
+        /* keep current table */
       } finally {
         if (loadingIndicator) loadingIndicator.classList.remove('is-active');
       }
     }
 
-    // Auto-submit behavior with debounce
-    const form = document.getElementById('filtersForm');
-    let timer = null;
-    function submitDebounced(delay = 400) {
+    var form = document.getElementById('filtersForm');
+    var timer = null;
+    function submitDebounced(delay) {
+      if (delay === void 0) { delay = 400; }
       if (!form) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
+      timer = setTimeout(function() {
         updateRows();
       }, delay);
     }
 
-    // Auto-submit on dropdowns and checkboxes instantly
     if (form) {
-      form.querySelectorAll('select, input[type="checkbox"]').forEach(el => {
-        el.addEventListener('change', () => submitDebounced(10));
+      form.querySelectorAll('select, input[type="checkbox"]').forEach(function(el) {
+        el.addEventListener('change', function() { submitDebounced(10); });
       });
-      // Debounce on text, number, and range inputs
-      form.querySelectorAll('input[type="text"]:not(#categoriesSearch), input[type="number"], input[type="range"]').forEach(el => {
-        el.addEventListener('input', () => submitDebounced(400));
+      form.querySelectorAll('input[type="text"]:not(#categoriesSearch), input[type="number"], input[type="range"]').forEach(function(el) {
+        el.addEventListener('input', function() { submitDebounced(400); });
       });
-      // When filters (not pagination controls) change, reset to page 1
-      form.querySelectorAll('input[name="q"], input[type="checkbox"][name="owners"], select[name="type"], select[name="playable"], select[name="player_count"], input[type="checkbox"][name="categories"], input[name="min_year"], input[name="max_year"], input[name="min_avg_rating"], input[name="max_avg_rating"], input[name="min_weight"], input[name="max_weight"], input[name="min_voters"]').forEach(el => {
-        el.addEventListener('change', () => { const p = document.getElementById('page_input'); if (p) p.value = '1'; });
-        el.addEventListener('input', () => { const p = document.getElementById('page_input'); if (p) p.value = '1'; });
+      form.querySelectorAll('input[name="q"], input[type="checkbox"][name="owners"], select[name="type"], select[name="playable"], select[name="player_count"], input[type="checkbox"][name="categories"], input[name="min_year"], input[name="max_year"], input[name="min_avg_rating"], input[name="max_avg_rating"], input[name="min_weight"], input[name="max_weight"], input[name="min_voters"]').forEach(function(el) {
+        el.addEventListener('change', function() { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
+        el.addEventListener('input', function() { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
       });
     }
 
-    const sortInput = form ? form.querySelector('[name="sort"]') : null;
-    const dirInput = form ? form.querySelector('[name="dir"]') : null;
-    const headerLinks = document.querySelectorAll('thead th a[data-sort]');
+    var headerLinks = document.querySelectorAll('th a[data-sort]');
+    var sortInput = form ? form.querySelector('[name="sort"]') : null;
+    var dirInput = form ? form.querySelector('[name="dir"]') : null;
 
     function updateSortIndicators(currentSort, currentDir) {
-      headerLinks.forEach(link => {
-        const arrow = link.querySelector('.sort-arrow');
+      headerLinks.forEach(function(link) {
+        var arrow = link.querySelector('.sort-arrow');
         if (!arrow) return;
         if (link.dataset.sort === currentSort) {
-          arrow.innerHTML = currentDir === 'desc' ? ' &darr;' : ' &uarr;';
+          arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
           link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
         } else {
-          arrow.innerHTML = '';
+          arrow.textContent = '';
           link.dataset.nextDir = 'desc';
         }
       });
@@ -456,69 +575,64 @@
       updateSortIndicators('{{ sort|default:"score_factor" }}', '{{ dir|default:"desc" }}');
     }
 
-    headerLinks.forEach(link => {
-      link.addEventListener('click', (event) => {
+    headerLinks.forEach(function(link) {
+      link.addEventListener('click', function(event) {
         if (!form || !sortInput || !dirInput) {
           return;
         }
         event.preventDefault();
-        const sortKey = link.dataset.sort;
-        const nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
+        var sortKey = link.dataset.sort;
+        var nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
         sortInput.value = sortKey;
         dirInput.value = nextDir;
-        const pageInput = form.querySelector('[name="page"]');
+        var pageInput = form.querySelector('[name="page"]');
         if (pageInput) pageInput.value = '1';
         updateSortIndicators(sortKey, nextDir);
         submitDebounced(10);
       });
     });
 
-    const resetBtn = document.getElementById('resetDefaults');
+    var resetBtn = document.getElementById('resetDefaults');
     if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        const form = resetBtn.closest('form');
-        if (!form) return;
-        // Set defaults
-        form.querySelector('[name="q"]').value = '';
-        form.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(cb => cb.checked = false);
-        form.querySelector('[name="type"]').value = 'all';
-        form.querySelector('[name="playable"]').value = 'playable';
-        form.querySelector('[name="player_count"]').value = 'all';
-        const minYear = form.querySelector('#min_year'); if (minYear) minYear.value = '{{ year_slider_min }}';
-        const maxYear = form.querySelector('#max_year'); if (maxYear) maxYear.value = '{{ year_slider_max }}';
-        const minAR = form.querySelector('#min_avg_rating'); if (minAR) minAR.value = '0';
-        const maxAR = form.querySelector('#max_avg_rating'); if (maxAR) maxAR.value = '10';
-        
-        const minW = form.querySelector('#min_weight'); if (minW) minW.value = '0';
-        const maxW = form.querySelector('#max_weight'); if (maxW) maxW.value = '5';
-        
-        const minV = form.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
+      resetBtn.addEventListener('click', function() {
+        var formEl = resetBtn.closest('form');
+        if (!formEl) return;
+        formEl.querySelector('[name="q"]').value = '';
+        formEl.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function(cb) { cb.checked = false; });
+        formEl.querySelector('[name="type"]').value = 'all';
+        formEl.querySelector('[name="playable"]').value = 'playable';
+        formEl.querySelector('[name="player_count"]').value = 'all';
+        var minYear = formEl.querySelector('#min_year'); if (minYear) minYear.value = '{{ year_slider_min }}';
+        var maxYear = formEl.querySelector('#max_year'); if (maxYear) maxYear.value = '{{ year_slider_max }}';
+        var minAR = formEl.querySelector('#min_avg_rating'); if (minAR) minAR.value = '0';
+        var maxAR = formEl.querySelector('#max_avg_rating'); if (maxAR) maxAR.value = '10';
+        var minW = formEl.querySelector('#min_weight'); if (minW) minW.value = '0';
+        var maxW = formEl.querySelector('#max_weight'); if (maxW) maxW.value = '5';
+        var minV = formEl.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
         if (sortInput) sortInput.value = 'score_factor';
         if (dirInput) dirInput.value = 'desc';
         updateSortIndicators('score_factor', 'desc');
-        const p = form.querySelector('[name="page"]'); if (p) p.value = '1';
-        const ps = form.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
-        // Clear categories checkboxes
-        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(cb => cb.checked = false);
+        var p = formEl.querySelector('[name="page"]'); if (p) p.value = '1';
+        var ps = formEl.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
+        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function(cb) { cb.checked = false; });
         updateLabels();
         updateRows();
       });
+    }
 
-    // Categories search and clear
-    const catSearch = document.getElementById('categoriesSearch');
+    var catSearch = document.getElementById('categoriesSearch');
     if (catSearch) {
-      let catSearchTimer = null;
-      catSearch.addEventListener('input', () => {
+      var catSearchTimer = null;
+      catSearch.addEventListener('input', function() {
         if (catSearchTimer) clearTimeout(catSearchTimer);
-        catSearchTimer = setTimeout(() => {
-          const q = (catSearch.value || '').toLowerCase();
-          const items = document.querySelectorAll('#categoriesList .cat-item');
-          for (let i = 0; i < items.length; i++) {
-            const el = items[i];
-            const name = el.getAttribute('data-name') || '';
-            el.style.display = name.includes(q) ? 'inline-flex' : 'none';
-          }
-          const more = document.getElementById('categoriesMore');
+        catSearchTimer = setTimeout(function() {
+          var q = (catSearch.value || '').toLowerCase();
+          var items = document.querySelectorAll('#categoriesList .cat-item');
+          items.forEach(function(el) {
+            var name = el.getAttribute('data-name') || '';
+            el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
+          });
+          var more = document.getElementById('categoriesMore');
           if (more) {
             if (q) more.setAttribute('open', 'open');
             else more.removeAttribute('open');
@@ -526,43 +640,38 @@
         }, 200);
       });
     }
-    const clearOwnersBtn = document.getElementById('clearOwners');
+    var clearOwnersBtn = document.getElementById('clearOwners');
     if (clearOwnersBtn) {
-      clearOwnersBtn.addEventListener('click', () => {
-        document.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(cb => cb.checked = false);
-        const p = document.getElementById('page_input'); if (p) p.value = '1';
+      clearOwnersBtn.addEventListener('click', function() {
+        document.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function(cb) { cb.checked = false; });
+        var p = document.getElementById('page_input'); if (p) p.value = '1';
         submitDebounced(10);
       });
     }
 
-    const clearCats = document.getElementById('clearCategories');
+    var clearCats = document.getElementById('clearCategories');
     if (clearCats) {
-      clearCats.addEventListener('click', () => {
-        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(cb => cb.checked = false);
-        const p = document.getElementById('page_input'); if (p) p.value = '1';
+      clearCats.addEventListener('click', function() {
+        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function(cb) { cb.checked = false; });
+        var p = document.getElementById('page_input'); if (p) p.value = '1';
         submitDebounced(10);
       });
     }
-    }
 
-    // Pager controls
-    const prevBtn = document.getElementById('prevPage');
-    const nextBtn = document.getElementById('nextPage');
+    var prevBtn = document.getElementById('prevPage');
+    var nextBtn = document.getElementById('nextPage');
     function changePage(delta) {
-      const p = document.getElementById('page_input');
-      const total = parseInt(document.getElementById('pagesTotal')?.textContent || '1');
-      let cur = parseInt(p?.value || '1');
-      cur = isNaN(cur) ? 1 : cur;
-      let next = cur + delta;
+      var p = document.getElementById('page_input');
+      var total = parseInt(document.getElementById('pagesTotal') ? document.getElementById('pagesTotal').textContent : '1', 10);
+      var cur = parseInt(p ? p.value : '1', 10);
+      if (isNaN(cur) || cur < 1) cur = 1;
+      var next = cur + delta;
       if (next < 1) next = 1;
       if (next > total) next = total;
       if (p) p.value = String(next);
       submitDebounced(10);
     }
-    if (prevBtn) prevBtn.addEventListener('click', () => changePage(-1));
-    if (nextBtn) nextBtn.addEventListener('click', () => changePage(1));
+    if (prevBtn) prevBtn.addEventListener('click', function() { changePage(-1); });
+    if (nextBtn) nextBtn.addEventListener('click', function() { changePage(1); });
   </script>
-</body>
-</html>
-
-
+{% endblock %}

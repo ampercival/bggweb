@@ -1,114 +1,496 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>BGG Player Count Optimizer</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; line-height: 1.6; }
-    .nav a { margin-right: 1rem; }
-    .hero { max-width: 720px; margin-bottom: 2rem; }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 2rem 0; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; background: #f8fbff; }
-    .card h3 { margin-top: 0; }
-    .note { color: #666; font-size: 0.95rem; }
-    .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top: 1.5rem; }
-    .actions a { padding: 10px 16px; border-radius: 6px; background: #1e88e5; color: #fff; text-decoration:none; }
-    .actions a.secondary { background: #555; }
-    .user-list { list-style: none; padding: 0; margin: 0.5rem 0 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
-    .user-pill { border: 1px solid #ccc; border-radius: 16px; padding: 4px 10px; background: #fff; color: #333; }
-    .label { font-weight: 600; color: #444; }
-  </style>
-</head>
-<body>
-  <div class="nav">
-    <a href="{% url 'home' %}">Home</a>
-    <a href="{% url 'games_list' %}">View Games</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'refresh' %}">Refresh Data</a>
-    {% endif %}
-    <a href="{% url 'export_csv' %}">Export CSV</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'admin:index' %}">Admin</a>
-    {% endif %}
+{% extends 'base.html' %}
+
+
+
+{% block title %}Dashboard &middot; BGG Player Count Optimizer{% endblock %}
+
+
+
+{% block extra_head %}
+
+<style>
+
+  .hero-grid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+
+    gap: 2rem;
+
+    align-items: stretch;
+
+  }
+
+  .eyebrow {
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.12em;
+
+    font-size: 0.8rem;
+
+    font-weight: 700;
+
+    color: var(--text-muted);
+
+  }
+
+  .hero-copy h1 {
+
+    margin: 0.6rem 0 0.85rem;
+
+    font-size: clamp(2.1rem, 4vw, 2.6rem);
+
+    line-height: 1.15;
+
+  }
+
+  .hero-copy p {
+
+    color: var(--text-muted);
+
+    max-width: 46ch;
+
+  }
+
+  .hero-actions {
+
+    display: flex;
+
+    gap: 0.8rem;
+
+    flex-wrap: wrap;
+
+    margin-top: 1.4rem;
+
+  }
+
+  .hero-benefits {
+
+    margin: 1.6rem 0 0;
+
+    padding: 0;
+
+    list-style: none;
+
+    display: grid;
+
+    gap: 0.6rem;
+
+  }
+
+  .hero-benefits li {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 0.6rem;
+
+    color: var(--text-muted);
+
+  }
+
+  .hero-benefits .dot {
+
+    width: 8px;
+
+    height: 8px;
+
+    border-radius: 50%;
+
+    background: var(--primary);
+
+  }
+
+  .hero-metric.card {
+
+    background: linear-gradient(135deg, rgba(26,110,240,0.12), rgba(26,110,240,0.03));
+
+    display: grid;
+
+    gap: 1.2rem;
+
+  }
+
+  .hero-metric h2 {
+
+    margin: 0;
+
+    font-size: clamp(2.2rem, 6vw, 2.8rem);
+
+    font-weight: 700;
+
+  }
+
+  .stat-grid {
+
+    display: grid;
+
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+
+    gap: 1.8rem;
+
+  }
+
+  .stat-card h3 {
+
+    margin-top: 0;
+
+    margin-bottom: 0.9rem;
+
+  }
+
+  .stat-card .note {
+
+    color: var(--text-muted);
+
+  }
+
+  .status-badge {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 0.35rem;
+
+    background: rgba(26,110,240,0.12);
+
+    color: var(--primary-dark);
+
+    padding: 0.25rem 0.7rem;
+
+    border-radius: 999px;
+
+    font-size: 0.82rem;
+
+    font-weight: 600;
+
+  }
+
+  .refresh-meta {
+
+    display: grid;
+
+    gap: 0.35rem;
+
+    font-size: 0.95rem;
+
+  }
+
+  .refresh-meta span.label {
+
+    font-weight: 600;
+
+    color: var(--text-muted);
+
+    margin-right: 0.35rem;
+
+  }
+
+  .user-list {
+
+    list-style: none;
+
+    padding: 0;
+
+    margin: 0.75rem 0 0;
+
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 0.55rem;
+
+  }
+
+  .user-pill {
+
+    padding: 0.35rem 0.7rem;
+
+    border-radius: 999px;
+
+    border: 1px solid var(--border);
+
+    background: var(--surface-muted);
+
+    font-size: 0.9rem;
+
+  }
+
+  .tips-list {
+
+    margin: 0;
+
+    padding: 0;
+
+    list-style: none;
+
+    display: grid;
+
+    gap: 0.55rem;
+
+  }
+
+  .tips-list li {
+
+    background: var(--surface-muted);
+
+    border-radius: 12px;
+
+    padding: 0.55rem 0.75rem;
+
+    border: 1px solid var(--border);
+
+  }
+
+  @media (max-width: 640px) {
+
+    .hero-actions {
+
+      width: 100%;
+
+    }
+
+    .hero-actions .button {
+
+      flex: 1 1 auto;
+
+      justify-content: center;
+
+    }
+
+  }
+
+</style>
+
+{% endblock %}
+
+
+
+{% block content %}
+
+<section class="page-section hero-grid">
+
+  <div class="hero-copy">
+
+    <span class="eyebrow">Player-count optimizer</span>
+
+    <h1>Plan the perfect game night by player-count.</h1>
+
+    <p>
+
+      Using data sourced from BGG users on the best player counts and ratings, this app help you find the best games to play with a group of any size.
+
+    </p>
+
+    <div class="hero-actions">
+
+      <a class="button primary" href="{% url 'games_list' %}">Browse optimized games</a>
+
+      {% if request.user.is_authenticated and request.user.is_superuser %}
+
+      <a class="button secondary" href="{% url 'refresh' %}">Run a refresh</a>
+
+      {% else %}
+
+      <a class="button secondary" href="{% url 'export_csv' %}">Export latest CSV</a>
+
+      {% endif %}
+
+    </div>
+
+    <ul class="hero-benefits">
+
+      <li><span class="dot"></span>Pulls from data directly from BGG.</li>
+
+      <li><span class="dot"></span>Spot the best player counts with weighted recommendation metrics.</li>
+
+      <li><span class="dot"></span>Advanced features that improve on native BGG searches.</li>
+
+    </ul>
+
   </div>
 
-  <section class="hero">
-    <h1>BGG Player Count Optimizer</h1>
-    <p>
-      Explore BoardGameGeek data tuned for finding the best player counts. The optimizer fetches BGG rank lists, merges your collection, pulls per-game details, and scores each player count so you can plan the next game night in minutes.
-    </p>
-    <div class="actions">
-      <a href="{% url 'games_list' %}">Browse Optimized Games</a>
-      {% if request.user.is_authenticated and request.user.is_superuser %}
-      <a class="secondary" href="{% url 'refresh' %}">Run a Refresh</a>
-      {% endif %}
-    </div>
-  </section>
+  <div class="hero-metric card" role="presentation">
 
-  <section class="stats">
-    <div class="card">
-      <h3>Library Size</h3>
-      <div class="label">Total games in database</div>
-      <div style="font-size:1.6rem; font-weight:600;">{{ total_games }}</div>
-      <p class="note">Games are updated during each refresh run. Start a new refresh whenever you download a fresh ranks file or add titles to your collection.</p>
+    <div class="eyebrow">Library overview</div>
+
+    <div>
+
+      <h2>{{ total_games }}</h2>
+
+      <p class="note">Total games currently stored in the catalog.</p>
+
     </div>
-    <div class="card">
-      <h3>Last Refresh</h3>
+
+    {% if last_refresh %}
+
+    <div>
+
+      <span class="status-badge">Last refresh &middot; {{ last_refresh.status|title }}</span>
+
+      <p class="note" style="margin-top: 0.6rem;">
+
+        Updated <span class="localtime" data-ts="{{ last_refresh.finished_at|default:last_refresh.created_at|date:'c' }}">{{ last_refresh.finished_at|default:last_refresh.created_at }}</span>
+
+      </p>
+
+    </div>
+
+    {% else %}
+
+    <p class="note">No refresh job has been completed yet. Head to the refresh page to kick off your first import.</p>
+
+    {% endif %}
+
+  </div>
+
+</section>
+
+
+
+<section class="page-section">
+
+  <div class="stat-grid">
+
+    <article class="card stat-card">
+
+      <h3>Last refresh details</h3>
+
       {% if last_refresh %}
-        <div><span class="label">Status:</span> {{ last_refresh.status|title }}</div>
-        <div>
-          <span class="label">Completed:</span>
-          {% if last_refresh.finished_at %}
-            <span class="localtime" data-ts="{{ last_refresh.finished_at|date:'c' }}">{{ last_refresh.finished_at }}</span>
-          {% else %}
-            <span class="localtime" data-ts="{{ last_refresh.created_at|date:'c' }}">{{ last_refresh.created_at }}</span>
-          {% endif %}
-        </div>
-        <div><span class="label">Top N:</span> {{ last_refresh.params.n|default:'' }}</div>
-        <div>
-          <span class="label">Users Included:</span>
-          {% if last_refresh.params.usernames %}
-            {{ last_refresh.params.usernames|join:", " }}
-          {% elif last_refresh.params.username %}
-            {{ last_refresh.params.username }}
-          {% else %}
-            None
-          {% endif %}
-        </div>
-        <div><span class="label">Games processed:</span> {{ last_refresh.total }}</div>
-        <p class="note"><a href="{% url 'job_detail' job_id=last_refresh.id %}">View refresh job details</a></p>
-      {% else %}
-        <p>No refresh has been run yet. Head over to the refresh page to download the latest ranks and populate the catalog.</p>
-      {% endif %}
-    </div>
-    <div class="card">
-      <h3>Tracked BGG Users</h3>
-      {% if tracked_users %}
-        <div><span class="label">Total users:</span> {{ tracked_users|length }}</div>
-        <ul class="user-list">
-          {% for username in tracked_users %}
-          <li class="user-pill">{{ username }}</li>
-          {% endfor %}
-        </ul>
-        <p class="note">Manage tracked usernames on the <a href="{% url 'refresh' %}">refresh page</a>.</p>
-      {% else %}
-        <p class="note">No tracked users yet. Add some on the <a href="{% url 'refresh' %}">refresh page</a>.</p>
-      {% endif %}
-    </div>
-  </section>
 
-  <script>
-    (function() {
-      const els = document.querySelectorAll('.localtime');
-      els.forEach(el => {
-        const ts = el.getAttribute('data-ts');
-        if (!ts) return;
-        try {
-          const d = new Date(ts);
-          el.textContent = d.toLocaleString();
-        } catch (e) {}
-      });
-    })();
-  </script>
-</body>
-</html>
+      <div class="refresh-meta">
+
+        <div><span class="label">Status:</span> {{ last_refresh.status|title }}</div>
+
+        <div><span class="label">Top N scraped:</span> {{ last_refresh.params.n|default:"&mdash;" }}</div>
+
+        <div>
+
+          <span class="label">Users included:</span>
+
+          {% if last_refresh.params.usernames %}
+
+            {{ last_refresh.params.usernames|join:", " }}
+
+          {% elif last_refresh.params.username %}
+
+            {{ last_refresh.params.username }}
+
+          {% else %}
+
+            None
+
+          {% endif %}
+
+        </div>
+
+        <div><span class="label">Games processed:</span> {{ last_refresh.total }}</div>
+
+        <div><span class="label">Job link:</span> <a href="{% url 'job_detail' job_id=last_refresh.id %}">View progress log</a></div>
+
+      </div>
+
+      {% else %}
+
+      <p class="note">Run the first refresh to pull the BGG Top N dataset and enrich it with player-count polls.</p>
+
+      {% endif %}
+
+    </article>
+
+
+
+    <article class="card stat-card">
+
+      <h3>Tracked BGG users</h3>
+
+      {% if tracked_users %}
+
+        <div><span class="label">Total users:</span> {{ tracked_users|length }}</div>
+
+        <ul class="user-list">
+
+          {% for username in tracked_users %}
+
+          <li class="user-pill">{{ username }}</li>
+
+          {% endfor %}
+
+        </ul>
+
+        {% if request.user.is_authenticated and request.user.is_superuser %}
+
+          <p class="note" style="margin-top: 1rem;">Manage tracked usernames on the <a href="{% url 'refresh' %}">refresh page</a>. Each refresh pulls the owned collection for everyone on this list.</p>
+
+        {% else %}
+
+          <p class="note" style="margin-top: 1rem;">Ask the administrator to add more users to this list.</p>
+
+        {% endif %}
+      
+      {% else %}
+
+        <p class="note">No usernames have been added yet. Add the BGG handles you care about on the refresh page to blend their collections into the catalog.</p>
+
+      {% endif %}
+
+    </article>
+
+
+<!-- 
+    <article class="card stat-card">
+
+      <h3>Next best actions</h3>
+
+      <ul class="tips-list">
+
+        <li><strong>Download</strong> the latest <a href="https://boardgamegeek.com/data_dumps/bg_ranks" target="_blank" rel="noopener">BGG ranks ZIP</a> before starting a refresh.</li>
+
+        <li><strong>Filter the Games view</strong> by owners, player counts, weight, or categories to spin up a curated shortlist.</li>
+
+      </ul>
+
+    </article> -->
+
+  </div>
+
+</section>
+
+{% endblock %}
+
+
+
+{% block extra_scripts %}
+
+<script>
+
+  (function() {
+
+    const els = document.querySelectorAll('.localtime');
+
+    els.forEach(el => {
+
+      const ts = el.getAttribute('data-ts');
+
+      if (!ts) return;
+
+      try {
+
+        const d = new Date(ts);
+
+        el.textContent = d.toLocaleString();
+
+      } catch (e) {}
+
+    });
+
+  })();
+
+</script>
+
+{% endblock %}
+

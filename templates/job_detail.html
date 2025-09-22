@@ -1,208 +1,161 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Job #{{ job.id }}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
-    .nav a { margin-right: 1rem; }
-    .progress { width: 420px; height: 16px; background: #eee; border-radius: 8px; overflow: hidden; }
-    .bar { height: 100%; background: #4caf50; width: 0%; transition: width 0.4s ease; }
-    .row { margin: 8px 0; }
-    .error { color: #b00020; white-space: pre-wrap; }
-  </style>
-</head>
-<body>
-  <div class="nav">
-    <a href="/">Home</a>
-    <a href="{% url 'games_list' %}">View Games</a>
-    <a href="{% url 'export_csv' %}">Export CSV</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'admin:index' %}">Admin</a>
+
+{% extends 'base.html' %}
+
+{% block title %}Job #{{ job.id }} Ãƒâ€šÃ‚Â&middot; Data Pipeline{% endblock %}
+
+{% block extra_head %}
+<style>
+  .job-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .status-chip {
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .progress-wrapper {
+    margin: 1rem 0;
+    background: var(--surface-muted);
+    border-radius: 10px;
+    overflow: hidden;
+    height: 12px;
+  }
+  .progress-bar {
+    background: var(--primary);
+    height: 100%;
+    width: 0;
+    transition: width 0.3s ease;
+  }
+  .job-metadata {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .job-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem;
+    box-shadow: var(--shadow);
+  }
+  pre.job-error {
+    background: #fdecef;
+    border-radius: 12px;
+    padding: 1rem;
+    border: 1px solid #f2c4cc;
+    color: #ba1a1a;
+    overflow-x: auto;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="job-header">
+  <div>
+    <h1>Job #{{ job.id }}</h1>
+    <p class="note">Kind: <strong>{{ job.kind|title }}</strong></p>
+  </div>
+  <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
+</section>
+
+<div class="job-panel">
+  <div class="job-metadata">
+    <div>
+      <strong>Progress</strong>
+      <div id="progress">{{ job.progress }} / {{ job.total }}</div>
+      <div class="progress-wrapper" aria-hidden="true">
+        <div id="bar" class="progress-bar" style="width: {% if job.total %}{{ job.progress|floatformat:2|add:'0'|floatformat:0|floatformat }}{% else %}0{% endif %}%;"></div>
+      </div>
+    </div>
+    <div>
+      <strong>Created</strong>
+      <div class="localtime" data-ts="{{ job.created_at|date:'c' }}">{{ job.created_at }}</div>
+    </div>
+    {% if job.finished_at %}
+    <div>
+      <strong>Finished</strong>
+      <div class="localtime" data-ts="{{ job.finished_at|date:'c' }}">{{ job.finished_at }}</div>
+    </div>
     {% endif %}
   </div>
+  <p class="note">This page refreshes automatically to keep you up to date on background processing.</p>
+</div>
 
-  <h1>Job #{{ job.id }}</h1>
-  <div class="row">Kind: <b>{{ job.kind }}</b></div>
-  <div class="row">Status: <b id="status">{{ job.status }}</b></div>
-  <div class="row">Progress: <b id="progress">{{ job.progress }} / {{ job.total }}</b></div>
-  <div class="progress"><div id="bar" class="bar"></div></div>
-
-  <p id="job-error" class="error"{% if not job.error %} style="display:none"{% endif %}>{{ job.error }}</p>
-
-  <h2>Phases</h2>
-    <div id="phases">
-    <div class="row"><b>Top N</b>
-      <div class="progress" style="width:420px; display:inline-block; margin-left:8px; vertical-align:middle;"><div id="phase-topn" class="bar"></div></div>
-      <span id="phase-topn-text" style="margin-left:8px;"></span>
-      <span id="phase-topn-time" class="small" style="margin-left:8px; color:#666;"></span>
-    </div>
-    <div class="row"><b>Collection</b>
-      <div class="progress" style="width:420px; display:inline-block; margin-left:8px; vertical-align:middle;"><div id="phase-coll" class="bar"></div></div>
-      <span id="phase-coll-text" style="margin-left:8px;"></span>
-      <span id="phase-coll-time" class="small" style="margin-left:8px; color:#666;"></span>
-    </div>
-    <div class="row"><b>Details</b>
-      <div class="progress" style="width:420px; display:inline-block; margin-left:8px; vertical-align:middle;"><div id="phase-det" class="bar"></div></div>
-      <span id="phase-det-text" style="margin-left:8px;"></span>
-      <span id="phase-det-time" class="small" style="margin-left:8px; color:#666;"></span>
-    </div>
-    <div class="row"><b>Apply</b>
-      <div class="progress" style="width:420px; display:inline-block; margin-left:8px; vertical-align:middle;"><div id="phase-apply" class="bar"></div></div>
-      <span id="phase-apply-text" style="margin-left:8px;"></span>
-      <span id="phase-apply-time" class="small" style="margin-left:8px; color:#666;"></span>
-    </div>
+{% if job.error %}
+<section class="page-section">
+  <div class="job-panel">
+    <h2>Last error</h2>
+    <pre class="job-error">{{ job.error }}</pre>
   </div>
+</section>
+{% endif %}
+{% endblock %}
 
-  <p id="done" style="display:none; margin-top:12px;">
-    Job completed. You can now <a href="{% url 'games_list' %}">view games</a> or
-    <a href="{% url 'export_csv' %}">download CSV</a>.
-  </p>
+{% block extra_scripts %}
+<script>
+  (function() {
+    const statusChip = document.getElementById('statusChip');
+    const progressEl = document.getElementById('progress');
+    const barEl = document.getElementById('bar');
 
-  <script>
-    const total = {{ job.total|default:0 }};
-    function pct(progress, total) {
-      if (!total || total <= 0) return 0;
-      return Math.min(100, Math.round((progress / total) * 100));
-    }
-
-    function setBar(id, percent) {
-      const el = document.getElementById(id);
-      if (el) el.style.width = (percent || 0) + '%';
-    }
-
-    function fmtDuration(seconds) {
-      const s = Math.max(0, Math.floor(seconds || 0));
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const sec = s % 60;
-      const pad = (n) => String(n).padStart(2, '0');
-      if (h > 0) return `${h}:${pad(m)}:${pad(sec)}`;
-      return `${m}:${pad(sec)}`;
-    }
-
-    function timeStats(ph) {
-      try {
-        const started = ph.started_at ? new Date(ph.started_at) : null;
-        const ref = ph.finished_at ? new Date(ph.finished_at) : (ph.updated_at ? new Date(ph.updated_at) : new Date());
-        const p = Number(ph.progress || 0);
-        const t = Number(ph.total || 0);
-        let elapsed = 0;
-        let remaining = null;
-        if (started) {
-          elapsed = Math.max(0, (ref - started) / 1000);
-        }
-        if (ph.status === 'done') {
-          remaining = 0;
-        } else if (p > 0 && t > 0 && p <= t) {
-          const rate = elapsed / p; // seconds per unit
-          const estTotal = rate * t;
-          remaining = Math.max(0, estTotal - elapsed);
-        }
-        return { elapsed: fmtDuration(elapsed), remaining: remaining != null ? fmtDuration(remaining) : '' };
-      } catch (e) { return { elapsed: '', remaining: '' }; }
-    }
-
-    function updatePhases(phases) {
-      // Top N
-      const top = phases && phases.top_n ? phases.top_n : null;
-      if (top) {
-        setBar('phase-topn', pct(top.progress || 0, top.total || 0));
-        const t = document.getElementById('phase-topn-text');
-        if (t) t.textContent = `${top.status || 'pending'} ${top.progress || 0}/${top.total || 0}`;
-        const tt = document.getElementById('phase-topn-time');
-        if (tt) {
-          const times = timeStats(top);
-          tt.textContent = `(elapsed ${times.elapsed}${times.remaining ? ', remaining ' + times.remaining : ''})`;
-        }
-      }
-      // Collection
-      const coll = phases && phases.collection ? phases.collection : null;
-      if (coll) {
-        const p = pct(coll.progress || 0, coll.total || 0);
-        setBar('phase-coll', p);
-        const items = coll.items != null ? `, items ${coll.items}` : '';
-        const t = document.getElementById('phase-coll-text');
-        if (t) t.textContent = `${coll.status || 'pending'} ${coll.progress || 0}/${coll.total || 0}${items}`;
-        const tt = document.getElementById('phase-coll-time');
-        if (tt) {
-          const times = timeStats(coll);
-          tt.textContent = `(elapsed ${times.elapsed}${times.remaining ? ', remaining ' + times.remaining : ''})`;
-        }
-      } else {
-        setBar('phase-coll', 0);
-      }
-      // Details
-      const det = phases && phases.details ? phases.details : null;
-      if (det) {
-        setBar('phase-det', pct(det.progress || 0, det.total || 0));
-        const t = document.getElementById('phase-det-text');
-        const batchTxt = det.batch ? `, batch ${det.batch}` : '';
-        if (t) t.textContent = `${det.status || 'pending'} ${det.progress || 0}/${det.total || 0}${batchTxt}`;
-        const tt = document.getElementById('phase-det-time');
-        if (tt) {
-          const times = timeStats(det);
-          tt.textContent = `(elapsed ${times.elapsed}${times.remaining ? ', remaining ' + times.remaining : ''})`;
-        }
-      }
-      // Apply (DB commit)
-      const apply = phases && phases.apply ? phases.apply : null;
-      if (apply) {
-        setBar('phase-apply', pct(apply.progress || 0, apply.total || 0));
-        const t = document.getElementById('phase-apply-text');
-        const totTxt = apply.total ? ` of ${apply.total}` : '';
-        if (t) t.textContent = `${apply.status || 'pending'} ${apply.progress || 0}${totTxt}`;
-        const tt = document.getElementById('phase-apply-time');
-        if (tt) {
-          const times = timeStats(apply);
-          tt.textContent = `(elapsed ${times.elapsed}${times.remaining ? ', remaining ' + times.remaining : ''})`;
-        }
+    if (barEl) {
+      const initTotal = parseFloat(barEl.dataset.initialTotal || '0');
+      const initProgress = parseFloat(barEl.dataset.initialProgress || '0');
+      if (initTotal) {
+        const pct = Math.min(100, Math.round((initProgress / initTotal) * 100));
+        barEl.style.width = pct + '%';
       }
     }
 
-    function updateUI(data) {
-      document.getElementById('status').textContent = data.status;
-      document.getElementById('progress').textContent = `${data.progress} / ${data.total}`;
-      const percent = pct(data.progress, data.total);
-      document.getElementById('bar').style.width = percent + '%';
-      const errorEl = document.getElementById('job-error');
-      if (errorEl) {
-        if (data.error) {
-          errorEl.textContent = data.error;
-          errorEl.style.display = 'block';
-        } else {
-          errorEl.textContent = '';
-          errorEl.style.display = 'none';
-        }
-      }
-      if (data.phases) updatePhases(data.phases);
-      if (data.status === 'done' || data.status === 'error') {
-        document.getElementById('done').style.display = (data.status === 'done') ? 'block' : 'none';
-        return true;
-      }
-      return false;
+    function refreshTimes() {
+      document.querySelectorAll('.localtime').forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        if (!ts) return;
+        try {
+          const d = new Date(ts);
+          el.textContent = d.toLocaleString();
+        } catch (e) {}
+      });
     }
 
-    async function poll() {
-      try {
-        const resp = await fetch(window.location.href, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const finished = updateUI(data);
-        if (!finished) setTimeout(poll, 1500);
-      } catch (e) {
-        setTimeout(poll, 3000);
-      }
+    refreshTimes();
+
+    function poll() {
+      fetch(window.location.href, { headers: { 'x-requested-with': 'XMLHttpRequest' } })
+        .then(resp => resp.ok ? resp.json() : null)
+        .then(data => {
+          if (!data) return;
+          const status = data.status || '';
+          if (statusChip) statusChip.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+          if (progressEl) progressEl.textContent = `${data.progress} / ${data.total}`;
+          if (barEl) {
+            const total = parseFloat(data.total || 0);
+            const prog = parseFloat(data.progress || 0);
+            if (total) {
+              const pct = Math.min(100, Math.round((prog / total) * 100));
+              barEl.style.width = pct + '%';
+            }
+            barEl.dataset.initialProgress = prog;
+            barEl.dataset.initialTotal = total;
+          }
+          if (data.status && data.status !== 'done' && data.status !== 'error') {
+            setTimeout(poll, 1500);
+          }
+        })
+        .catch(() => {
+          setTimeout(poll, 4000);
+        });
     }
-    // Initialize bar width from server-rendered values
-    (function init() {
-      const progText = document.getElementById('progress').textContent.split('/');
-      const p = parseInt(progText[0]) || 0;
-      const t = parseInt(progText[1]) || 0;
-      const pct = t ? Math.min(100, Math.round((p / t) * 100)) : 0;
-      document.getElementById('bar').style.width = pct + '%';
-    })();
-    poll();
-  </script>
-</body>
-</html>
+
+    setTimeout(poll, 1500);
+  })();
+</script>
+{% endblock %}

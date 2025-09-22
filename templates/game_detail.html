@@ -1,98 +1,173 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>{{ game.title }}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
-    .nav a { margin-right: 1rem; }
-    .grid { display: grid; grid-template-columns: 220px 1fr; gap: 8px 16px; max-width: 800px; }
-    .label { color: #666; }
-    table { border-collapse: collapse; margin-top: 1rem; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
-    th { background: #f5f5f5; }
-  </style>
-</head>
-<body>
-  <div class="nav">
-    <a href="/">Home</a>
-    <a href="{% url 'games_list' %}">Back to Games</a>
-    <a href="{% url 'export_csv' %}">Export CSV</a>
-    {% if request.user.is_authenticated and request.user.is_superuser %}
-    <a href="{% url 'admin:index' %}">Admin</a>
-    {% endif %}
+
+{% extends 'base.html' %}
+
+{% block title %}{{ game.title }} &middot; Game Detail{% endblock %}
+
+{% block extra_head %}
+<style>
+  .detail-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-start;
+    margin-bottom: 1.8rem;
+  }
+  .detail-meta {
+    flex: 1 1 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 1.1rem;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+  .tag {
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.9rem;
+  }
+  .meta-item {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .meta-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .player-card {
+    margin-top: 2rem;
+  }
+  .player-card table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .player-card th,
+  .player-card td {
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .player-card tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .player-card thead {
+    background: var(--surface-muted);
+  }
+  .section-title {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-section detail-header">
+  <div>
+    <h1>{{ game.title }}</h1>
+    <p class="note">BGG ID {{ game.bgg_id }} &middot; {{ game.year|default:'Year unknown' }} &middot; {{ game.type }}</p>
+    <div class="tags">
+      {% if game.owned %}
+      <span class="tag">Owned</span>
+      {% else %}
+      <span class="tag">Not owned</span>
+      {% endif %}
+      {% for family in game.families.all %}
+      <span class="tag">{{ family.name }}</span>
+      {% endfor %}
+      {% for category in game.categories.all %}
+      <span class="tag">{{ category.name }}</span>
+      {% endfor %}
+    </div>
   </div>
-
-  <h1>{{ game.title }}</h1>
-
-  <div class="grid">
-    <div class="label">BGG ID</div><div>{{ game.bgg_id }}</div>
-    <div class="label">Year</div><div>{{ game.year|default:'N/A' }}</div>
-    <div class="label">BGG Rank</div><div>{{ game.bgg_rank|default:'N/A' }}</div>
-    <div class="label">Average Rating</div><div>{% if game.avg_rating is not None %}{{ game.avg_rating|floatformat:2 }}{% else %}N/A{% endif %}</div>
-    <div class="label">Number of Voters</div><div>{{ game.num_voters }}</div>
-    <div class="label">Weight</div><div>{{ game.weight|default:'N/A' }}</div>
-    <div class="label">Weight Votes</div><div>{{ game.weight_votes|default:'N/A' }}</div>
-    <div class="label">Owned</div><div>{% if game.owned %}Owned{% else %}Not Owned{% endif %}</div>
-    <div class="label">Owned By</div><div>{% if game.owned_by %}{{ game.owned_by|join:', ' }}{% else %}None{% endif %}</div>
-    <div class="label">Type</div><div>{{ game.type }}</div>
-    <div class="label">Categories</div>
-    <div>
-      {% with cats=game.categories.all %}
-        {% if cats %}
-          {% for c in cats %}{% if not forloop.first %}, {% endif %}{{ c.name }}{% endfor %}
-        {% else %}
-          N/A
-        {% endif %}
-      {% endwith %}
+  <div class="detail-meta">
+    <div class="meta-grid">
+      <div class="meta-item">
+        <span class="meta-label">Average rating</span>
+        <strong>{{ game.avg_rating|default:'N/A' }}</strong>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Weight</span>
+        <strong>{{ game.weight|default:'N/A' }}</strong>
+        <span class="note">{{ game.weight_votes|default:'0' }} votes</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">BGG rank</span>
+        <strong>{{ game.bgg_rank|default:'N/A' }}</strong>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Total voters</span>
+        <strong>{{ game.num_voters|default:'N/A' }}</strong>
+      </div>
     </div>
-    <div class="label">Families</div>
     <div>
-      {% with fams=game.families.all %}
-        {% if fams %}
-          {% for f in fams %}{% if not forloop.first %}, {% endif %}{{ f.name }}{% endfor %}
-        {% else %}
-          N/A
-        {% endif %}
-      {% endwith %}
+      <span class="meta-label">Owned by</span>
+      {% if game.owned_by %}
+        <p>{{ game.owned_by|join:', ' }}</p>
+      {% else %}
+        <p class="note">No tracked players currently own this title.</p>
+      {% endif %}
     </div>
-    <div class="label">BGG Link</div>
     <div>
-      <a href="https://boardgamegeek.com/{% if game.type == 'Expansion' %}boardgameexpansion{% else %}boardgame{% endif %}/{{ game.bgg_id }}" target="_blank" rel="noopener">View on BoardGameGeek</a>
+      <a class="button secondary" href="https://boardgamegeek.com/boardgame/{{ game.bgg_id }}" target="_blank" rel="noopener">Open on BoardGameGeek</a>
     </div>
   </div>
+</section>
 
-  <h2>Player Count Recommendations</h2>
+<section class="page-section player-card card" aria-labelledby="player-counts">
+  <h2 id="player-counts" class="section-title">Player count recommendations</h2>
+  {% if player_counts %}
   <table>
     <thead>
       <tr>
-        <th>Player Count</th>
+        <th>Players</th>
         <th>Best %</th>
-        <th>Best Votes</th>
-        <th>Recommended %</th>
-        <th>Recommended Votes</th>
-        <th>Not Recommended %</th>
-        <th>Not Recommended Votes</th>
-        <th>Vote Count</th>
+        <th>Best votes</th>
+        <th>Recommend %</th>
+        <th>Recommend votes</th>
+        <th>Not recommend %</th>
+        <th>Not votes</th>
+        <th>Total votes</th>
       </tr>
     </thead>
     <tbody>
       {% for pc in player_counts %}
       <tr>
         <td>{{ pc.count }}</td>
-        <td>{{ pc.best_pct }}</td>
+        <td>{{ pc.best_pct|floatformat:1 }}</td>
         <td>{{ pc.best_votes }}</td>
-        <td>{{ pc.rec_pct }}</td>
+        <td>{{ pc.rec_pct|floatformat:1 }}</td>
         <td>{{ pc.rec_votes }}</td>
-        <td>{{ pc.notrec_pct }}</td>
+        <td>{{ pc.notrec_pct|floatformat:1 }}</td>
         <td>{{ pc.notrec_votes }}</td>
         <td>{{ pc.vote_count }}</td>
       </tr>
-      {% empty %}
-      <tr><td colspan="8">No player count data available.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-
-</body>
-</html>
+  {% else %}
+  <p class="note">Player-count poll data is not available for this game yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
