@@ -2,119 +2,107 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>BGG Web - Home</title>
+  <title>BGG Player Count Optimizer</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
-    form { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; max-width: 520px; }
-    label { display: inline-block; min-width: 140px; }
-    input[type="text"], input[type="number"] { padding: 6px 8px; }
-    button { padding: 6px 12px; cursor: pointer; }
-    table { border-collapse: collapse; margin-top: 1rem; min-width: 700px; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
-    th { background: #f5f5f5; }
-    .nav { margin-bottom: 1rem; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; line-height: 1.6; }
     .nav a { margin-right: 1rem; }
-    .note { color: #666; font-size: 0.9rem; }
+    .hero { max-width: 720px; margin-bottom: 2rem; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 2rem 0; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; background: #f8fbff; }
+    .card h3 { margin-top: 0; }
+    .note { color: #666; font-size: 0.95rem; }
+    .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top: 1.5rem; }
+    .actions a { padding: 10px 16px; border-radius: 6px; background: #1e88e5; color: #fff; text-decoration:none; }
+    .actions a.secondary { background: #555; }
+    .user-list { list-style: none; padding: 0; margin: 0.5rem 0 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .user-pill { border: 1px solid #ccc; border-radius: 16px; padding: 4px 10px; background: #fff; color: #333; }
+    .label { font-weight: 600; color: #444; }
   </style>
 </head>
 <body>
-  <h1>BoardGameGeek Player Count Explorer</h1>
-
   <div class="nav">
+    <a href="{% url 'home' %}">Home</a>
     <a href="{% url 'games_list' %}">View Games</a>
+    {% if request.user.is_authenticated and request.user.is_superuser %}
+    <a href="{% url 'refresh' %}">Refresh Data</a>
+    {% endif %}
     <a href="{% url 'export_csv' %}">Export CSV</a>
+    {% if request.user.is_authenticated and request.user.is_superuser %}
+    <a href="{% url 'admin:index' %}">Admin</a>
+    {% endif %}
   </div>
 
-  <h2>Refresh Data (Top N + Username)</h2>
-  <form method="post" style="border-color:#9ec2ff;background:#f7fbff;">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="refresh">
-    <div style="margin-bottom:8px;">
-      <label for="n_refresh">Top N games:</label>
-      <input id="n_refresh" name="n" type="number" min="1" max="10000" value="100">
+  <section class="hero">
+    <h1>BGG Player Count Optimizer</h1>
+    <p>
+      Explore BoardGameGeek data tuned for finding the best player counts. The optimizer fetches BGG rank lists, merges your collection, pulls per-game details, and scores each player count so you can plan the next game night in minutes.
+    </p>
+    <div class="actions">
+      <a href="{% url 'games_list' %}">Browse Optimized Games</a>
+      {% if request.user.is_authenticated and request.user.is_superuser %}
+      <a class="secondary" href="{% url 'refresh' %}">Run a Refresh</a>
+      {% endif %}
     </div>
-    <div style="margin-bottom:8px;">
-      <label for="username_refresh">BGG Username:</label>
-      <input id="username_refresh" name="username" type="text" placeholder="optional username">
-    </div>
-    <div style="margin-bottom:8px;">
-      <label for="zip_url_refresh">Ranks ZIP URL:</label>
-      <input id="zip_url_refresh" name="zip_url" type="text" placeholder="https://...boardgames_ranks_YYYY-MM-DD.zip" required>
-      <div class="note">Paste the "Click to Download" link from the <a href="https://boardgamegeek.com/data_dumps/bg_ranks" target="_blank" rel="noopener">BoardGameGeek data dumps page</a>. Each link expires after a few minutes.</div>
-    </div>
-    <button type="submit">Refresh Data</button>
-    <div class="note">Scrapes Top N by rank and merges with this user's owned games (if provided), then fetches details and player-count polls. Performs a full refresh of games.</div>
-  </form>
+  </section>
 
-  <h2>Last Refresh</h2>
-  <div class="note"><b>Total games in database:</b> {{ total_games }}</div>
-  {% if last_refresh %}
-    <div style="border:1px solid #ddd; border-radius:8px; padding:12px; max-width:680px;">
-      <div><b>Status:</b> {{ last_refresh.status|title }}</div>
-      <div>
-        <b>Finished:</b>
-        {% if last_refresh.finished_at %}
-          <span id="lastRefreshTime" data-ts="{{ last_refresh.finished_at|date:'c' }}">{{ last_refresh.finished_at }}</span>
-        {% else %}
-          <span id="lastRefreshTime" data-ts="{{ last_refresh.created_at|date:'c' }}">{{ last_refresh.created_at }}</span>
-        {% endif %}
-      </div>
-      <div><b>Top N:</b> {{ last_refresh.params.n|default:'—' }}</div>
-      <div><b>Username:</b> {{ last_refresh.params.username|default:'—' }}</div>
-      <div><b>Ranks ZIP:</b> {% if last_refresh.params.zip_url %}<a href="{{ last_refresh.params.zip_url }}" target="_blank" rel="noopener">Download</a>{% else %}&mdash;{% endif %}</div>
-      <div><b>Details batch size:</b> {{ last_refresh.params.batch_size|default:'—' }}</div>
-      <div><b>Games refreshed:</b> {{ last_refresh.total }}</div>
-      <div><a href="{% url 'job_detail' job_id=last_refresh.id %}">View job details</a></div>
+  <section class="stats">
+    <div class="card">
+      <h3>Library Size</h3>
+      <div class="label">Total games in database</div>
+      <div style="font-size:1.6rem; font-weight:600;">{{ total_games }}</div>
+      <p class="note">Games are updated during each refresh run. Start a new refresh whenever you download a fresh ranks file or add titles to your collection.</p>
     </div>
-  {% else %}
-    <div class="note">No refresh has been run yet.</div>
-  {% endif %}
-  <h2>Recent Jobs</h2>
-  <form method="post" action="{% url 'clear_jobs' %}" style="margin: 0 0 10px 0;">
-    {% csrf_token %}
-    <button type="submit" onclick="return confirm('Delete all job records? This cannot be undone.');">Clear All Jobs</button>
-  </form>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Kind</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th>Created</th>
-        <th>Link</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in jobs %}
-      <tr>
-        <td>{{ job.id }}</td>
-        <td>{{ job.kind }}</td>
-        <td>{{ job.status }}</td>
-        <td>{{ job.progress }} / {{ job.total }}</td>
-        <td><span class="localtime" data-ts="{{ job.created_at|date:'c' }}">{{ job.created_at }}</span></td>
-        <td><a href="{% url 'job_detail' job_id=job.id %}">Open</a></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6">No jobs yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <div class="card">
+      <h3>Last Refresh</h3>
+      {% if last_refresh %}
+        <div><span class="label">Status:</span> {{ last_refresh.status|title }}</div>
+        <div>
+          <span class="label">Completed:</span>
+          {% if last_refresh.finished_at %}
+            <span class="localtime" data-ts="{{ last_refresh.finished_at|date:'c' }}">{{ last_refresh.finished_at }}</span>
+          {% else %}
+            <span class="localtime" data-ts="{{ last_refresh.created_at|date:'c' }}">{{ last_refresh.created_at }}</span>
+          {% endif %}
+        </div>
+        <div><span class="label">Top N:</span> {{ last_refresh.params.n|default:'' }}</div>
+        <div>
+          <span class="label">Users Included:</span>
+          {% if last_refresh.params.usernames %}
+            {{ last_refresh.params.usernames|join:", " }}
+          {% elif last_refresh.params.username %}
+            {{ last_refresh.params.username }}
+          {% else %}
+            None
+          {% endif %}
+        </div>
+        <div><span class="label">Games processed:</span> {{ last_refresh.total }}</div>
+        <p class="note"><a href="{% url 'job_detail' job_id=last_refresh.id %}">View refresh job details</a></p>
+      {% else %}
+        <p>No refresh has been run yet. Head over to the refresh page to download the latest ranks and populate the catalog.</p>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3>Tracked BGG Users</h3>
+      {% if tracked_users %}
+        <div><span class="label">Total users:</span> {{ tracked_users|length }}</div>
+        <ul class="user-list">
+          {% for username in tracked_users %}
+          <li class="user-pill">{{ username }}</li>
+          {% endfor %}
+        </ul>
+        <p class="note">Manage tracked usernames on the <a href="{% url 'refresh' %}">refresh page</a>.</p>
+      {% else %}
+        <p class="note">No tracked users yet. Add some on the <a href="{% url 'refresh' %}">refresh page</a>.</p>
+      {% endif %}
+    </div>
+  </section>
 
   <script>
-    (function() {
-      const el = document.getElementById('lastRefreshTime');
-      if (!el) return;
-      const ts = el.getAttribute('data-ts');
-      try {
-        const d = new Date(ts);
-        el.textContent = d.toLocaleString();
-      } catch (e) {}
-    })();
     (function() {
       const els = document.querySelectorAll('.localtime');
       els.forEach(el => {
         const ts = el.getAttribute('data-ts');
+        if (!ts) return;
         try {
           const d = new Date(ts);
           el.textContent = d.toLocaleString();
@@ -122,6 +110,5 @@
       });
     })();
   </script>
-
 </body>
 </html>

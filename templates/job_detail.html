@@ -17,6 +17,9 @@
     <a href="/">Home</a>
     <a href="{% url 'games_list' %}">View Games</a>
     <a href="{% url 'export_csv' %}">Export CSV</a>
+    {% if request.user.is_authenticated and request.user.is_superuser %}
+    <a href="{% url 'admin:index' %}">Admin</a>
+    {% endif %}
   </div>
 
   <h1>Job #{{ job.id }}</h1>

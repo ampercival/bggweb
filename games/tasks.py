@@ -1,6 +1,7 @@
 import threading
 import time
 import logging
+from collections import defaultdict
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -58,13 +59,28 @@ def _sync_catalog(
     details_map,
     player_counts,
     *,
-    owned_ids=None,
-    username=None,
+    collection_owned_map=None,
     prune=False,
     progress_callback=None,
     progress_total=None,
 ):
-    owned_ids = set(owned_ids or [])
+    collection_owned_map = collection_owned_map or {}
+    games_map = {str(k): v for k, v in (games_map or {}).items()}
+    details_map = {str(k): v for k, v in (details_map or {}).items()}
+    player_counts = {str(k): v for k, v in (player_counts or {}).items()}
+
+    normalized_collections = {}
+    for username, ids in collection_owned_map.items():
+        if not username:
+            continue
+        normalized_collections[username] = {str(gid) for gid in ids if gid}
+    collection_owned_map = normalized_collections
+
+    owners_input_by_gid = defaultdict(set)
+    for username, ids in collection_owned_map.items():
+        for gid in ids:
+            owners_input_by_gid[gid].add(username)
+
     desired_ids = list(games_map.keys())
     now = timezone.now()
 
@@ -93,7 +109,7 @@ def _sync_catalog(
         player_units = sum(len(player_counts.get(gid, {})) for gid in desired_ids)
         if player_units == 0 and games_units:
             player_units = games_units
-        owned_units = len(owned_ids)
+        owned_units = sum(len(ids) for ids in collection_owned_map.values())
         total_units = prune_units + games_units + relations_units + player_units + owned_units
         if total_units <= 0:
             total_units = 1
@@ -133,7 +149,7 @@ def _sync_catalog(
         weight = _to_float(detail.get("Weight"))
         weight_votes = _to_int(detail.get("Weight Votes"))
         bgg_rank = _to_int(detail.get("BGG Rank"))
-        owned = gid in owned_ids
+        owners_for_gid = sorted(owners_input_by_gid.get(gid, set()))
 
         if gid in existing_games:
             game = existing_games[gid]
@@ -145,7 +161,6 @@ def _sync_catalog(
             game.weight = weight
             game.weight_votes = weight_votes
             game.bgg_rank = bgg_rank
-            game.owned = owned
             game.updated_at = now
             games_to_update.append(game)
         else:
@@ -160,7 +175,8 @@ def _sync_catalog(
                     weight=weight,
                     weight_votes=weight_votes,
                     bgg_rank=bgg_rank,
-                    owned=owned,
+                    owned=bool(owners_for_gid),
+                    owned_by=owners_for_gid,
                     created_at=now,
                     updated_at=now,
                 )
@@ -180,7 +196,6 @@ def _sync_catalog(
                 "weight",
                 "weight_votes",
                 "bgg_rank",
-                "owned",
                 "updated_at",
             ],
             batch_size=500,
@@ -222,40 +237,36 @@ def _sync_catalog(
     for rec in existing_recs:
         rec_map.setdefault(rec.game.bgg_id, {})[rec.count] = rec
 
-    recs_to_create = []
     recs_to_update = []
+    recs_to_create = []
     recs_to_delete = []
+
     for gid in desired_ids:
+        counts = player_counts.get(gid, {}) or {}
         game = game_objs.get(gid)
         if not game:
             continue
-        counts_payload = player_counts.get(gid, {})
         seen_counts = set()
-        for count_key, payload in counts_payload.items():
-            try:
-                count = int(count_key)
-            except (TypeError, ValueError):
-                continue
+        for count, data in counts.items():
+            count = int(count)
+            best_pct = _to_float(data.get("Best %")) or 0.0
+            best_votes = _to_int(data.get("Best Votes")) or 0
+            rec_pct = _to_float(data.get("Rec. %")) or 0.0
+            rec_votes = _to_int(data.get("Rec. Votes")) or 0
+            notrec_pct = _to_float(data.get("Not %")) or 0.0
+            notrec_votes = _to_int(data.get("Not Votes")) or 0
+            vote_count = _to_int(data.get("Total Votes")) or 0
             seen_counts.add(count)
-            payload = payload or {}
-            best_pct = float(payload.get("Best %", 0.0) or 0.0)
-            best_votes = _to_int(payload.get("Best Votes")) or 0
-            rec_pct = float(payload.get("Recommended %", 0.0) or 0.0)
-            rec_votes = _to_int(payload.get("Recommended Votes")) or 0
-            notrec_pct = float(payload.get("Not Recommended %", 0.0) or 0.0)
-            notrec_votes = _to_int(payload.get("Not Recommended Votes")) or 0
-            vote_count = _to_int(payload.get("Vote Count")) or 0
-            existing_for_game = rec_map.get(gid, {})
-            rec_obj = existing_for_game.get(count)
-            if rec_obj:
-                rec_obj.best_pct = best_pct
-                rec_obj.best_votes = best_votes
-                rec_obj.rec_pct = rec_pct
-                rec_obj.rec_votes = rec_votes
-                rec_obj.notrec_pct = notrec_pct
-                rec_obj.notrec_votes = notrec_votes
-                rec_obj.vote_count = vote_count
-                recs_to_update.append(rec_obj)
+            existing = rec_map.get(gid, {}).get(count)
+            if existing:
+                existing.best_pct = best_pct
+                existing.best_votes = best_votes
+                existing.rec_pct = rec_pct
+                existing.rec_votes = rec_votes
+                existing.notrec_pct = notrec_pct
+                existing.notrec_votes = notrec_votes
+                existing.vote_count = vote_count
+                recs_to_update.append(existing)
             else:
                 recs_to_create.append(
                     PlayerCountRecommendation(
@@ -296,27 +307,57 @@ def _sync_catalog(
 
     report_units(player_units)
 
-    if username:
-        coll, _ = Collection.objects.get_or_create(username=username)
-        target_owned_ids = {gid for gid in desired_ids if gid in owned_ids}
-        existing_owned = OwnedGame.objects.filter(collection=coll).select_related("game")
-        existing_owned_map = {og.game.bgg_id: og for og in existing_owned if og.game_id}
-        owned_to_create = []
-        for gid in target_owned_ids:
-            if gid not in existing_owned_map:
-                game = game_objs.get(gid)
-                if game:
-                    owned_to_create.append(OwnedGame(collection=coll, game=game))
-        if owned_to_create:
-            OwnedGame.objects.bulk_create(owned_to_create, ignore_conflicts=True)
-        to_remove = [og.id for gid, og in existing_owned_map.items() if gid not in target_owned_ids]
-        if to_remove:
-            OwnedGame.objects.filter(id__in=to_remove).delete()
+    if collection_owned_map:
+        for username, target_ids in collection_owned_map.items():
+            coll, _ = Collection.objects.get_or_create(username=username)
+            target_ids = set(target_ids)
+            missing_ids = [gid for gid in target_ids if gid not in game_objs]
+            if missing_ids:
+                game_objs.update(Game.objects.in_bulk(missing_ids, field_name="bgg_id"))
+            existing_owned = OwnedGame.objects.filter(collection=coll).select_related("game")
+            existing_owned_map = {og.game.bgg_id: og for og in existing_owned if og.game_id}
+            owned_to_create = []
+            for gid in target_ids:
+                if gid not in existing_owned_map:
+                    game = game_objs.get(gid)
+                    if game:
+                        owned_to_create.append(OwnedGame(collection=coll, game=game))
+            if owned_to_create:
+                OwnedGame.objects.bulk_create(owned_to_create, ignore_conflicts=True)
+            to_remove = [og.id for gid, og in existing_owned_map.items() if gid not in target_ids]
+            if to_remove:
+                OwnedGame.objects.filter(id__in=to_remove).delete()
         report_units(owned_units)
+
+    relevant_ids = set(desired_ids)
+    relevant_ids.update(owners_input_by_gid.keys())
+    if relevant_ids:
+        missing_for_relevant = [gid for gid in relevant_ids if gid not in game_objs]
+        if missing_for_relevant:
+            game_objs.update(Game.objects.in_bulk(missing_for_relevant, field_name="bgg_id"))
+        owner_qs = OwnedGame.objects.filter(game__bgg_id__in=relevant_ids).select_related("collection", "game")
+        owners_by_game_actual = defaultdict(list)
+        for owned in owner_qs:
+            if not owned.collection_id or not owned.game_id:
+                continue
+            owners_by_game_actual[owned.game.bgg_id].append(owned.collection.username)
+        games_to_owner_update = []
+        for gid in relevant_ids:
+            game = game_objs.get(gid)
+            if not game:
+                continue
+            owners = sorted(set(owners_by_game_actual.get(gid, [])))
+            existing = list(game.owned_by or [])
+            if game.owned != bool(owners) or existing != owners:
+                game.owned = bool(owners)
+                game.owned_by = owners
+                game.updated_at = now
+                games_to_owner_update.append(game)
+        if games_to_owner_update:
+            Game.objects.bulk_update(games_to_owner_update, ["owned", "owned_by", "updated_at"], batch_size=500)
 
     if track_progress and progress_target > 0 and last_progress < progress_target:
         progress_callback(progress_target)
-
 
 def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
@@ -349,7 +390,7 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
         log.info('Job %s: details fetched for Top N job', job.id)
 
-        _sync_catalog(combined, details, pcounts, owned_ids=set(), username=None, prune=True)
+        _sync_catalog(combined, details, pcounts, prune=True)
         log.info('Job %s: catalog sync complete for Top N', job.id)
 
         job.status = "done"
@@ -379,6 +420,8 @@ def run_fetch_collection(job_id: int, username: str):
         ids = list(owned_map.keys())
         log.info('Job %s: collection returned %s items', job.id, len(ids))
         combined = {gid: dict(owned_map[gid]) for gid in ids}
+        for gid in ids:
+            combined[gid]["Owned"] = "Owned"
         job.total = len(ids)
         job.progress = len(ids)
         job.save(update_fields=["total", "progress"])
@@ -387,7 +430,8 @@ def run_fetch_collection(job_id: int, username: str):
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
         log.info('Job %s: details fetched for collection job', job.id)
 
-        _sync_catalog(combined, details, pcounts, owned_ids=set(ids), username=username, prune=False)
+        collection_map = {username: set(ids)}
+        _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False)
         log.info('Job %s: catalog sync complete for collection job', job.id)
 
         job.status = "done"
@@ -400,7 +444,6 @@ def run_fetch_collection(job_id: int, username: str):
         job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
-
 
 def start_background(target, *args, **kwargs):
     def _runner():
@@ -415,15 +458,19 @@ def start_background(target, *args, **kwargs):
     return th
 
 
-def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, ranks_zip_url: str | None = None):
+
+def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
     job.progress = 0
     job.total = n
+
+    normalized_usernames = sorted({(u or '').strip() for u in (usernames or []) if (u or '').strip()})
     params = dict(job.params or {})
     params['batch_size'] = batch_size
     if ranks_zip_url:
         params['zip_url'] = ranks_zip_url
+    params['usernames'] = normalized_usernames
     params["phases"] = {
         "top_n": {
             "status": "running",
@@ -435,10 +482,11 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             {
                 "status": "pending",
                 "progress": 0,
-                "total": 0,
+                "total": len(normalized_usernames),
                 "items": 0,
+                "users_completed": 0,
             }
-            if username
+            if normalized_usernames
             else {"status": "skipped"}
         ),
         "details": {
@@ -451,7 +499,7 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
     }
     job.params = params
     job.save(update_fields=["status", "progress", "total", "params"])
-    log.info('Job %s: starting refresh (n=%s, username=%s, batch=%s)', job.id, n, username or '-', batch_size)
+    log.info('Job %s: starting refresh (n=%s, usernames=%s, batch=%s)', job.id, n, ','.join(normalized_usernames) or '-', batch_size)
 
     ranks_zip_url = params.get('zip_url')
 
@@ -495,9 +543,11 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
         job.progress = min(len(top_ids), n)
         job.save(update_fields=["params", "progress"])
 
-        owned_map = {}
-        owned_ids = set()
-        if username:
+        combined = {gid: dict(top_map[gid]) for gid in top_ids}
+        collections_map: dict[str, set[str]] = {}
+        total_collection_items = 0
+
+        if normalized_usernames:
             params_local = job.params or {}
             coll_phase = params_local.get("phases", {}).get("collection")
             if coll_phase is not None:
@@ -505,7 +555,9 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
                     {
                         "status": "running",
                         "progress": 0,
+                        "total": len(normalized_usernames),
                         "items": 0,
+                        "users_completed": 0,
                         "started_at": timezone.now().isoformat(),
                     }
                 )
@@ -513,54 +565,68 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
                 job.params = params_local
                 job.save(update_fields=["params"])
 
-            def on_coll_progress(**kw):
-                params_inner = job.params or {}
-                ph = params_inner.get("phases", {}).get("collection", {})
-                if "progress" in kw:
-                    ph["progress"] = kw["progress"]
-                if "total" in kw:
-                    ph["total"] = kw["total"]
-                if "items" in kw:
-                    ph["items"] = kw["items"]
-                ph["updated_at"] = timezone.now().isoformat()
-                params_inner["phases"]["collection"] = ph
-                job.params = params_inner
-                save_throttled(["params"])
+            for idx, username in enumerate(normalized_usernames, 1):
+                def on_coll_progress(**kw):
+                    params_inner = job.params or {}
+                    ph = params_inner.get("phases", {}).get("collection", {})
+                    ph["status"] = "running"
+                    ph["total"] = len(normalized_usernames)
+                    ph["progress"] = idx - 1
+                    ph["current_user"] = username
+                    if "progress" in kw:
+                        ph["user_progress"] = kw["progress"]
+                    if "total" in kw:
+                        ph["user_total"] = kw["total"]
+                    if "items" in kw:
+                        ph["current_items"] = kw["items"]
+                    ph["updated_at"] = timezone.now().isoformat()
+                    params_inner["phases"]["collection"] = ph
+                    job.params = params_inner
+                    save_throttled(["params"])
 
-            log.info('Job %s: fetching owned collection for %s', job.id, username)
-            owned_map = client.fetch_owned_collection(username, on_progress=on_coll_progress)
-            owned_ids = set(owned_map.keys())
-            log.info('Job %s: owned collection returned %s items', job.id, len(owned_ids))
-            params_local = job.params or {}
-            if "collection" in params_local.get("phases", {}):
-                params_local["phases"]["collection"].update(
+                log.info('Job %s: fetching owned collection for %s', job.id, username)
+                user_owned_map = client.fetch_owned_collection(username, on_progress=on_coll_progress)
+                user_ids = {str(gid) for gid in user_owned_map.keys()}
+                collections_map[username] = user_ids
+                total_collection_items += len(user_ids)
+                log.info('Job %s: owned collection for %s returned %s items', job.id, username, len(user_ids))
+                for gid in user_ids:
+                    data = user_owned_map.get(gid, {}) or {}
+                    entry = combined.setdefault(gid, dict(data))
+                    entry["Owned"] = "Owned"
+                    if data.get("Game Title"):
+                        entry["Game Title"] = data["Game Title"]
+                    if data.get("Type") is not None:
+                        entry["Type"] = data["Type"]
+                    if data.get("Average Rating") is not None:
+                        entry["Average Rating"] = data["Average Rating"]
+                    if data.get("Number of Voters") is not None:
+                        entry["Number of Voters"] = data["Number of Voters"]
+
+                params_local = job.params or {}
+                ph = params_local.get("phases", {}).get("collection", {})
+                ph.update(
                     {
-                        "status": "done",
-                        "items": len(owned_map),
-                        "finished_at": timezone.now().isoformat(),
+                        "status": "running" if idx < len(normalized_usernames) else "done",
+                        "progress": idx,
+                        "users_completed": idx,
+                        "total": len(normalized_usernames),
+                        "items": total_collection_items,
+                        "last_user": username,
+                        "updated_at": timezone.now().isoformat(),
                     }
                 )
+                if idx == len(normalized_usernames):
+                    ph["finished_at"] = timezone.now().isoformat()
+                    ph.pop("current_user", None)
+                    ph.pop("user_progress", None)
+                    ph.pop("user_total", None)
+                    ph.pop("current_items", None)
+                params_local["phases"]["collection"] = ph
                 job.params = params_local
                 job.save(update_fields=["params"])
-
-        combined = {gid: dict(top_map[gid]) for gid in top_ids}
-        for gid in owned_ids:
-            data = owned_map.get(gid, {})
-            if gid in combined:
-                entry = combined[gid]
-                entry["Owned"] = "Owned"
-                if data.get("Game Title"):
-                    entry["Game Title"] = data["Game Title"]
-                if data.get("Type") is not None:
-                    entry["Type"] = data["Type"]
-                if data.get("Average Rating") is not None:
-                    entry["Average Rating"] = data["Average Rating"]
-                if data.get("Number of Voters") is not None:
-                    entry["Number of Voters"] = data["Number of Voters"]
-            else:
-                entry = dict(data)
-                entry["Owned"] = "Owned"
-                combined[gid] = entry
+        else:
+            collections_map = {}
 
         all_ids = list(combined.keys())
         params_local = job.params or {}
@@ -677,8 +743,7 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
             combined,
             details,
             pcounts,
-            owned_ids=owned_ids,
-            username=username,
+            collection_owned_map=collections_map,
             prune=True,
             progress_callback=progress_cb,
             progress_total=progress_total,
@@ -709,4 +774,3 @@ def run_refresh(job_id: int, n: int, username: str | None, batch_size: int, rank
         job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
-

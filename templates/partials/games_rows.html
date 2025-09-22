@@ -9,7 +9,7 @@
   <td>{{ r.num_voters }}</td>
   <td>{{ r.weight|default:'N/A' }}</td>
   <td>{{ r.weight_votes|default:'N/A' }}</td>
-  <td>{% if r.owned %}Owned{% else %}Not Owned{% endif %}</td>
+  <td>{{ r.owned_by_str }}</td>
   <td>{{ r.type }}</td>
   <td>{{ r.families_str }}</td>
   <td>{{ r.categories_str }}</td>

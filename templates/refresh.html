@@ -1,0 +1,168 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Refresh BoardGameGeek Data</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; line-height: 1.6; }
+    .nav a { margin-right: 1rem; }
+    form { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; max-width: 520px; background: #fafafa; }
+    form.refresh { border-color:#9ec2ff; background:#f7fbff; }
+    label { display: inline-block; min-width: 150px; }
+    input[type="text"], input[type="number"] { padding: 6px 8px; }
+    button { padding: 6px 12px; cursor: pointer; }
+    table { border-collapse: collapse; margin-top: 1.5rem; min-width: 720px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .note { color: #666; font-size: 0.95rem; }
+    .stats { border: 1px solid #ddd; border-radius: 10px; padding: 12px 16px; max-width: 520px; background: #f8fbff; margin: 1.5rem 0; }
+    .user-list { list-style: none; padding: 0; margin: 0.5rem 0 1rem 0; display:flex; flex-wrap:wrap; gap:10px; }
+    .user-pill { border:1px solid #ccc; border-radius:20px; padding:6px 10px; background:#fff; display:flex; align-items:center; gap:8px; }
+    .user-pill form { margin:0; padding:0; border:none; background:none; }
+    .user-pill button { padding:2px 8px; font-size:0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="{% url 'home' %}">Home</a>
+    <a href="{% url 'games_list' %}">View Games</a>
+    {% if request.user.is_authenticated and request.user.is_superuser %}
+    <a href="{% url 'refresh' %}">Refresh Data</a>
+    {% endif %}
+    <a href="{% url 'export_csv' %}">Export CSV</a>
+    {% if request.user.is_authenticated and request.user.is_superuser %}
+    <a href="{% url 'admin:index' %}">Admin</a>
+    {% endif %}
+  </div>
+
+  <h1>Refresh BoardGameGeek Data</h1>
+  <p class="note">Trigger new background jobs here. Start a refresh when you have a fresh BGG ranks ZIP or want to update collections for your tracked usernames.</p>
+
+  <div class="stats">
+    <div><strong>Total games currently in the database:</strong> {{ total_games }}</div>
+    {% if last_refresh %}
+      <div><strong>Last refresh:</strong> {{ last_refresh.status|title }} ({{ last_refresh.total }} games)</div>
+      <div><a href="{% url 'job_detail' job_id=last_refresh.id %}">View last refresh job</a></div>
+    {% else %}
+      <div><strong>Last refresh:</strong> not run yet.</div>
+    {% endif %}
+  </div>
+
+  <h2>Tracked BGG Users</h2>
+  <form method="post" style="max-width:520px;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add_user">
+    <div style="display:flex; gap:10px; align-items:center;">
+      <label for="username_add" style="min-width:140px;">Add username:</label>
+      <input id="username_add" name="username" type="text" placeholder="e.g. geekuser" required>
+      <button type="submit">Add</button>
+    </div>
+    <div class="note">Tracked users are included automatically in every full refresh.</div>
+  </form>
+  {% if users %}
+    <ul class="user-list">
+      {% for user in users %}
+      <li class="user-pill">
+        <span>{{ user }}</span>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="delete_user">
+          <input type="hidden" name="username" value="{{ user }}">
+          <button type="submit">Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="note">No usernames tracked yet. Add one above to include their collection in future refreshes.</p>
+  {% endif %}
+
+  <h2>Full Refresh (Top N + tracked users)</h2>
+  <form method="post" class="refresh">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="refresh">
+    <div style="margin-bottom:8px;">
+      <label for="n_refresh">Top N games:</label>
+      <input id="n_refresh" name="n" type="number" min="1" max="10000" value="100">
+    </div>
+    <div style="margin-bottom:8px;">
+      <label for="zip_url_refresh">Ranks ZIP URL:</label>
+      <input id="zip_url_refresh" name="zip_url" type="text" placeholder="https://...boardgames_ranks_YYYY-MM-DD.zip" required>
+      <div class="note">Paste the "Click to Download" link from the <a href="https://boardgamegeek.com/data_dumps/bg_ranks" target="_blank" rel="noopener">BGG data dumps page</a>. Each link expires after a few minutes.</div>
+    </div>
+    <button type="submit">Start Refresh</button>
+    <div class="note">Scrapes the Top N list, merges every tracked user's collection, fetches details, and applies everything to the database.</div>
+  </form>
+
+  <h2>Quick Jobs</h2>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="top_n">
+    <div style="margin-bottom:8px;">
+      <label for="n_top">Top N games:</label>
+      <input id="n_top" name="n" type="number" min="1" max="10000" value="100">
+    </div>
+    <div style="margin-bottom:8px;">
+      <label for="zip_url_top">Ranks ZIP URL:</label>
+      <input id="zip_url_top" name="zip_url" type="text" placeholder="https://...boardgames_ranks_YYYY-MM-DD.zip" required>
+    </div>
+    <button type="submit">Fetch Top N Into Catalog</button>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="collection">
+    <div style="margin-bottom:8px;">
+      <label for="username_collection">BGG Username:</label>
+      <input id="username_collection" name="username" type="text" placeholder="username" required>
+    </div>
+    <button type="submit">Fetch Owned Collection</button>
+  </form>
+
+  <h2>Recent Jobs</h2>
+  <form method="post" action="{% url 'clear_jobs' %}" style="margin: 0 0 10px 0;">
+    {% csrf_token %}
+    <button type="submit" onclick="return confirm('Delete all job records? This cannot be undone.');">Clear All Jobs</button>
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Kind</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Created</th>
+        <th>Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.id }}</td>
+        <td>{{ job.kind }}</td>
+        <td>{{ job.status }}</td>
+        <td>{{ job.progress }} / {{ job.total }}</td>
+        <td><span class="localtime" data-ts="{{ job.created_at|date:'c' }}">{{ job.created_at }}</span></td>
+        <td><a href="{% url 'job_detail' job_id=job.id %}">Open</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6">No jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    (function() {
+      const els = document.querySelectorAll('.localtime');
+      els.forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        if (!ts) return;
+        try {
+          const d = new Date(ts);
+          el.textContent = d.toLocaleString();
+        } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>

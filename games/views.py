@@ -20,14 +20,40 @@ from django.db.models.functions import Cast, Coalesce
 from urllib.parse import urlencode
 from django.template.loader import render_to_string
 from datetime import datetime
-from .models import Game, PlayerCountRecommendation, FetchJob
+from django.contrib.auth.decorators import login_required, user_passes_test
+from .models import Game, PlayerCountRecommendation, FetchJob, BGGUser, Collection
 from .tasks import start_background, run_fetch_top_n, run_fetch_collection, run_refresh
 import csv
 
 
 def home(request):
+    total_games = Game.objects.count()
+    last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
+    tracked_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
+    return render(request, 'home.html', {
+        'total_games': total_games,
+        'last_refresh': last_refresh,
+        'tracked_users': tracked_users,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_superuser)
+def refresh(request):
+    saved_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
     if request.method == 'POST':
         action = request.POST.get('action')
+        if action == 'add_user':
+            username = (request.POST.get('username') or '').strip()
+            if username:
+                BGGUser.objects.get_or_create(username=username)
+            return redirect('refresh')
+        if action == 'delete_user':
+            username = (request.POST.get('username') or '').strip()
+            if username:
+                BGGUser.objects.filter(username=username).delete()
+                Collection.objects.filter(username=username).delete()
+            return redirect('refresh')
         if action == 'top_n':
             try:
                 n = int(request.POST.get('n') or '100')
@@ -40,33 +66,34 @@ def home(request):
             job = FetchJob.objects.create(kind='top_n', params=params, status='pending', total=n)
             start_background(run_fetch_top_n, job.id, n, zip_url or None)
             return redirect('job_detail', job_id=job.id)
-        elif action == 'collection':
-            username = request.POST.get('username') or ''
+        if action == 'collection':
+            username = (request.POST.get('username') or '').strip()
             job = FetchJob.objects.create(kind='collection', params={'username': username}, status='pending')
             start_background(run_fetch_collection, job.id, username)
             return redirect('job_detail', job_id=job.id)
-        elif action == 'refresh':
+        if action == 'refresh':
             try:
                 n = int(request.POST.get('n') or '100')
             except ValueError:
                 n = 100
-            username = request.POST.get('username') or ''
             zip_url = (request.POST.get('zip_url') or '').strip()
-            params = {'n': n, 'username': username, 'batch_size': 20}
+            params = {'n': n, 'batch_size': 20}
             if zip_url:
                 params['zip_url'] = zip_url
+            params['usernames'] = saved_users
             job = FetchJob.objects.create(kind='refresh', params=params, status='pending', total=n)
-            start_background(run_refresh, job.id, n, username, 20, zip_url or None)
+            start_background(run_refresh, job.id, n, saved_users, 20, zip_url or None)
             return redirect('job_detail', job_id=job.id)
     latest_jobs = FetchJob.objects.order_by('-created_at')[:10]
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
     total_games = Game.objects.count()
-    return render(request, 'home.html', {
+    saved_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
+    return render(request, 'refresh.html', {
         'jobs': latest_jobs,
         'last_refresh': last_refresh,
         'total_games': total_games,
+        'users': saved_users,
     })
-
 
 def job_detail(request, job_id: int):
     job = get_object_or_404(FetchJob, id=job_id)
@@ -93,7 +120,14 @@ def _compute_rows_context(request):
     direction = request.GET.get('dir', 'desc')
 
     q = request.GET.get('q', '')
-    owned_state = request.GET.get('owned_state', 'all')
+    raw_owner_params = request.GET.getlist('owners')
+    selected_owners = []
+    seen_owner_names = set()
+    for owner_name in raw_owner_params:
+        owner_clean = (owner_name or '').strip()
+        if owner_clean and owner_clean not in seen_owner_names:
+            selected_owners.append(owner_clean)
+            seen_owner_names.add(owner_clean)
     type_filter = request.GET.get('type', 'base')
     playable_state = request.GET.get('playable', 'playable')
     player_count_filter = request.GET.get('player_count', 'all')
@@ -168,10 +202,8 @@ def _compute_rows_context(request):
     if q:
         qs = qs.filter(game__title__icontains=q)
 
-    if owned_state == 'owned':
-        qs = qs.filter(game__owned=True)
-    elif owned_state == 'not':
-        qs = qs.filter(game__owned=False)
+    if selected_owners:
+        qs = qs.filter(game__ownedgame__collection__username__in=selected_owners).distinct()
 
     if type_filter == 'base':
         qs = qs.filter(game__type='Base Game')
@@ -291,6 +323,7 @@ def _compute_rows_context(request):
         game = rec.game
         categories = list(game.categories.values_list('name', flat=True))
         families = list(game.families.values_list('name', flat=True))
+        owners_list = sorted(list(game.owned_by or []))
         pc_unadj = float(rec.pc_score_unadj or 0.0)
         if pc_range:
             pc_score_val = (pc_unadj - pc_min) / pc_range * 10.0
@@ -307,6 +340,8 @@ def _compute_rows_context(request):
             'weight': game.weight,
             'weight_votes': game.weight_votes,
             'owned': game.owned,
+            'owned_by': owners_list,
+            'owned_by_str': ', '.join(owners_list),
             'type': game.type,
             'categories': categories,
             'categories_str': ', '.join(sorted(categories)),
@@ -341,7 +376,8 @@ def _compute_rows_context(request):
             param_items.append((key, value))
 
     add_param('q', q)
-    add_param('owned_state', owned_state)
+    for owner_name in selected_owners:
+        add_param('owners', owner_name)
     add_param('type', type_filter)
     add_param('playable', playable_state)
     add_param('player_count', player_count_filter)
@@ -379,6 +415,10 @@ def _compute_rows_context(request):
     pinned_norm = {name.lower() for name in pinned_display}
     open_more_categories = any(cat.lower() not in pinned_norm for cat in selected_categories)
 
+    tracked_owner_set = set(BGGUser.objects.values_list('username', flat=True))
+    collection_owner_set = set(Collection.objects.values_list('username', flat=True))
+    owner_usernames = sorted(tracked_owner_set | collection_owner_set | set(selected_owners))
+
     return {
         'rows': rows,
         'rows_count': rows_count,
@@ -386,7 +426,8 @@ def _compute_rows_context(request):
         'sort': sort,
         'dir': direction,
         'q': q,
-        'owned_state': owned_state,
+        'selected_owners': selected_owners,
+        'owner_usernames': owner_usernames,
         'type_filter': type_filter,
         'playable': playable_state,
         'player_count': player_count_filter,
@@ -450,7 +491,7 @@ def export_csv(request):
     writer = csv.writer(response)
     writer.writerow([
         'Score Factor','Game Title','Game ID','Year','BGG Rank','Average Rating','Number of Voters',
-        'Weight','Weight Votes','Owned','Type','Categories','Player Count','Best %','Best Votes',
+        'Weight','Weight Votes','Owned','Owners','Type','Categories','Player Count','Best %','Best Votes',
         'Rec. %','Rec. Votes','Not %','Not Votes','Total Votes',
         'Player Count Score (unadjusted)','Player Count Score','Playable'
     ])
@@ -466,6 +507,7 @@ def export_csv(request):
             r.get('weight') if r.get('weight') is not None else 'N/A',
             r.get('weight_votes') if r.get('weight_votes') is not None else 'N/A',
             'Owned' if r.get('owned') else 'Not Owned',
+            r.get('owned_by_str'),
             r.get('type'),
             r.get('categories_str'),
             r.get('player_count'),

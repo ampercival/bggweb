@@ -12,15 +12,16 @@ class Game(models.Model):
     weight_votes = models.IntegerField(null=True, blank=True)
     bgg_rank = models.IntegerField(null=True, blank=True)
     owned = models.BooleanField(default=False)
+    owned_by = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # New: categories (many-to-many), store category names from BGG
     categories = models.ManyToManyField('Category', blank=True, related_name='games')
-    # New: families (many-to-many), store BGG family groupings (e.g., Strategy, Thematic)
     families = models.ManyToManyField('Family', blank=True, related_name='games')
 
     def __str__(self):
         return f"{self.title} ({self.bgg_id})"
+
+
 class Category(models.Model):
     name = models.CharField(max_length=200, unique=True)
 
@@ -35,7 +36,15 @@ class Family(models.Model):
         return self.name
 
 
- 
+class BGGUser(models.Model):
+    username = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['username']
+
+    def __str__(self):
+        return self.username
 
 
 class PlayerCountRecommendation(models.Model):
@@ -57,7 +66,7 @@ class PlayerCountRecommendation(models.Model):
 
 
 class Collection(models.Model):
-    username = models.CharField(max_length=100)
+    username = models.CharField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     games = models.ManyToManyField(Game, through='OwnedGame')
 
@@ -78,7 +87,7 @@ class FetchJob(models.Model):
     ]
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     params = models.JSONField(default=dict)
-    status = models.CharField(max_length=20, default='pending')  # pending, running, done, error
+    status = models.CharField(max_length=20, default='pending')
     progress = models.IntegerField(default=0)
     total = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
