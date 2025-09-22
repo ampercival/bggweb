@@ -378,51 +378,30 @@
       </div>
     </div>
 
-    <div class="table-wrapper" role="region" aria-live="polite">
-      <table class="data-table">
-        <thead>
-          <tr>
-            {% for column, label in column_label_pairs %}
-              ('score_factor', 'Score'),
-              ('title', 'Game'),
-              ('game_id', 'Game ID'),
-              ('year', 'Year'),
-              ('bgg_rank', 'BGG Rank'),
-              ('avg_rating', 'Avg rating'),
-              ('num_voters', 'Voters'),
-              ('weight', 'Weight'),
-              ('weight_votes', 'Weight votes'),
-              ('owners', 'Owners'),
-              ('type', 'Type'),
-              ('families', 'Families'),
-              ('categories', 'Categories'),
-              ('player_count', 'Players'),
-              ('best_pct', 'Best %'),
-              ('best_votes', 'Best votes'),
-              ('rec_pct', 'Rec %'),
-              ('rec_votes', 'Rec votes'),
-              ('not_pct', 'Not %'),
-              ('not_votes', 'Not votes'),
-              ('total_votes', 'Total votes'),
-              ('pc_score', 'PC score'),
-              ('playable', 'Playable')
+  <div class="table-wrapper" role="region" aria-live="polite">
+    <table class="data-table">
+      <thead>
+        <tr>
+          {% for column, label in column_label_pairs %}
             {% if column == 'score_factor' or column == 'title' or column == 'year' or column == 'bgg_rank' or column == 'avg_rating' or column == 'num_voters' or column == 'weight' or column == 'pc_score' or column == 'playable' %}
-            <th>
-              <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}" data-sort="{{ column }}" data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
-                {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
-              </a>
-            </th>
+              <th>
+                <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}"
+                  data-sort="{{ column }}"
+                  data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
+                  {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
+                </a>
+              </th>
             {% else %}
-            <th>{{ label }}</th>
+              <th>{{ label }}</th>
             {% endif %}
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody id="rows">
-          {% include 'partials/games_rows.html' with rows=rows %}
-        </tbody>
-      </table>
-    </div>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody id="rows">
+        {% include 'partials/games_rows.html' with rows=rows %}
+      </tbody>
+    </table>
+  </div>
 
     <div id="pager">
       <div class="pager-group">

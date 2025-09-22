@@ -30,6 +30,7 @@ def home(request):
     total_games = Game.objects.count()
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
     tracked_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
+    
     return render(request, 'home.html', {
         'total_games': total_games,
         'last_refresh': last_refresh,
@@ -458,8 +459,32 @@ def _compute_rows_context(request):
 
 def games_list(request):
     context = _compute_rows_context(request)
+    context["column_label_pairs"] = [
+        ('score_factor', 'Score'),
+        ('title', 'Game'),
+        ('game_id', 'Game ID'),
+        ('year', 'Year'),
+        ('bgg_rank', 'BGG Rank'),
+        ('avg_rating', 'Avg rating'),
+        ('num_voters', 'Voters'),
+        ('weight', 'Weight'),
+        ('weight_votes', 'Weight votes'),
+        ('owners', 'Owners'),
+        ('type', 'Type'),
+        ('families', 'Families'),
+        ('categories', 'Categories'),
+        ('player_count', 'Players'),
+        ('best_pct', 'Best %'),
+        ('best_votes', 'Best votes'),
+        ('rec_pct', 'Rec %'),
+        ('rec_votes', 'Rec votes'),
+        ('not_pct', 'Not %'),
+        ('not_votes', 'Not votes'),
+        ('total_votes', 'Total votes'),
+        ('pc_score', 'PC score'),
+        ('playable', 'Playable'),
+    ]
     return render(request, 'games_list.html', context)
-
 
 def games_rows(request):
     context = _compute_rows_context(request)
