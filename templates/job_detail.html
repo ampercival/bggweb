@@ -1,7 +1,7 @@
 
 {% extends 'base.html' %}
 
-{% block title %}Job #{{ job.id }} &middot; Data Pipeline{% endblock %}
+{% block title %}Job #{{ job.id }} &middot; Details{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -67,6 +67,7 @@
 </section>
 
 <div class="job-panel">
+  <h2 id="phaseTitle" style="margin:0 0 0.75rem 0;">Phase: —</h2>
   <div class="job-metadata">
     <div>
       <strong>Progress</strong>
@@ -103,6 +104,7 @@
 <script>
   (function() {
     const statusChip = document.getElementById('statusChip');
+    const phaseTitle = document.getElementById('phaseTitle');
     const progressEl = document.getElementById('progress');
     const barEl = document.getElementById('bar');
 
@@ -126,6 +128,20 @@
       });
     }
 
+    function prettyPhase(key) {
+      if (!key) return '—';
+      if (key === 'top_n') return 'Top N';
+      return key.charAt(0).toUpperCase() + key.slice(1);      
+    }
+
+    function getCurrentPhase(phases) {
+      if (!phases) return null;
+      const order = ['top_n', 'collection', 'details', 'apply'];
+      for (const k of order) if (phases[k]?.status === 'running') return k;
+      for (const k of order.slice().reverse()) if (phases[k]?.status === 'done') return k;
+      return null;
+    }
+
     refreshTimes();
 
     function poll() {
@@ -135,6 +151,8 @@
           if (!data) return;
           const status = data.status || '';
           if (statusChip) statusChip.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+          const phase = data.current_phase || getCurrentPhase(data.phases);
+          if (phaseTitle) phaseTitle.textContent = 'Phase: ' + prettyPhase(phase);
           if (progressEl) progressEl.textContent = `${data.progress} / ${data.total}`;
           if (barEl) {
             const total = parseFloat(data.total || 0);
