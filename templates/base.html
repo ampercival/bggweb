@@ -140,12 +140,14 @@
       color: var(--text-muted);
       font-size: 0.85rem;
     }
+
     footer.site-footer {
       border-top: 1px solid var(--border);
       padding: 1.5rem 0 2rem;
       font-size: 0.9rem;
       color: var(--text-muted);
     }
+
     .button {
       display: inline-flex;
       align-items: center;
@@ -272,7 +274,7 @@
 <body>
   <header class="site-header">
     <div class="container nav-inner">
-      <a class="brand" href="{% url 'home' %}">BGG Optimizer</a>
+      <a class="brand" href="{% url 'home' %}">BGG Player-Count Optimizer</a>
       <nav class="primary-nav" aria-label="Main navigation">
         {% with current=request.resolver_match.url_name %}
           <a class="nav-link{% if current == 'home' %} is-active{% endif %}" href="{% url 'home' %}">Dashboard</a>
@@ -301,7 +303,15 @@
   </main>
   <footer class="site-footer">
     <div class="container">
-      <p>BGG Player Count Optimizer &middot; Crafted for speedy game-night planning. Data sourced from BoardGameGeek.</p>
+      <p>
+        BGG Player Count Optimizer · Data sourced from
+        <a href="https://boardgamegeek.com/">BoardGameGeek</a> under their
+        <a href="https://boardgamegeek.com/wiki/page/XML_API_Terms_of_Use">XML API Terms of Use</a>.<br>
+        Content on this site is licensed under
+        <a href="https://creativecommons.org/licenses/by-nc/4.0/" rel="license noopener" target="_blank">CC BY-NC 4.0</a>;
+        please credit the source for any non-commercial use. The source code is available on
+        <a href="https://github.com/ampercival/bggweb" rel="noopener" target="_blank">GitHub</a>.
+      </p>
     </div>
   </footer>
   {% block extra_scripts %}{% endblock %}
