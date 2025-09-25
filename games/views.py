@@ -20,8 +20,9 @@ from django.db.models.functions import Cast, Coalesce
 from urllib.parse import urlencode
 from django.template.loader import render_to_string
 from datetime import datetime
+from django.utils import timezone
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Game, PlayerCountRecommendation, FetchJob, BGGUser, Collection
+from .models import Game, PlayerCountRecommendation, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import start_background, run_fetch_top_n, run_fetch_collection, run_refresh
 import csv
 
@@ -36,6 +37,34 @@ def home(request):
         'last_refresh': last_refresh,
         'tracked_users': tracked_users,
     })
+
+def _refresh_owned_flags(game_ids):
+    unique_ids = {gid for gid in (game_ids or []) if gid}
+    if not unique_ids:
+        return
+    remaining = OwnedGame.objects.filter(game_id__in=unique_ids).select_related(
+        "collection", "game"
+    )
+    owners_by_game = {}
+    for owned in remaining:
+        if not owned.game_id or not owned.collection_id:
+            continue
+        owners_by_game.setdefault(owned.game_id, set()).add(owned.collection.username)
+    games = Game.objects.filter(id__in=unique_ids)
+    updates = []
+    now = timezone.now()
+    for game in games:
+        owners = sorted(owners_by_game.get(game.id, []))
+        if game.owned != bool(owners) or list(game.owned_by or []) != owners:
+            game.owned = bool(owners)
+            game.owned_by = owners
+            game.updated_at = now
+            updates.append(game)
+    if updates:
+        Game.objects.bulk_update(updates, ["owned", "owned_by", "updated_at"])
+
+
+
 
 
 @login_required
@@ -52,8 +81,14 @@ def refresh(request):
         if action == 'delete_user':
             username = (request.POST.get('username') or '').strip()
             if username:
+                collection = Collection.objects.filter(username=username).first()
+                game_ids = []
+                if collection:
+                    game_ids = list(OwnedGame.objects.filter(collection=collection).values_list('game_id', flat=True))
+                    OwnedGame.objects.filter(collection=collection).delete()
+                    collection.delete()
                 BGGUser.objects.filter(username=username).delete()
-                Collection.objects.filter(username=username).delete()
+                _refresh_owned_flags(game_ids)
             return redirect('refresh')
         if action == 'top_n':
             try:
