@@ -362,6 +362,43 @@ def _sync_catalog(
 
 
 
+def _purge_untracked_collections(active_usernames):
+    normalized = {(u or '').strip() for u in (active_usernames or []) if (u or '').strip()}
+    if normalized:
+        purge_qs = Collection.objects.exclude(username__in=normalized)
+    else:
+        purge_qs = Collection.objects.all()
+    if not purge_qs.exists():
+        return
+    collection_ids = list(purge_qs.values_list('id', flat=True))
+    owned_qs = OwnedGame.objects.filter(collection_id__in=collection_ids).select_related('collection', 'game')
+    affected_game_ids = set()
+    for owned in owned_qs:
+        if owned.game_id:
+            affected_game_ids.add(owned.game_id)
+    owned_qs.delete()
+    purge_qs.delete()
+    if not affected_game_ids:
+        return
+    remaining_owned = OwnedGame.objects.filter(game_id__in=affected_game_ids).select_related('collection', 'game')
+    owners_by_game = defaultdict(list)
+    for owned in remaining_owned:
+        if owned.collection_id and owned.collection.username:
+            owners_by_game[owned.game_id].append(owned.collection.username)
+    games_to_update = []
+    now = timezone.now()
+    for game in Game.objects.filter(id__in=affected_game_ids):
+        owners = sorted(set(owners_by_game.get(game.id, [])))
+        if game.owned != bool(owners) or list(game.owned_by or []) != owners:
+            game.owned = bool(owners)
+            game.owned_by = owners
+            game.updated_at = now
+            games_to_update.append(game)
+    if games_to_update:
+        Game.objects.bulk_update(games_to_update, ['owned', 'owned_by', 'updated_at'])
+
+
+
 def _build_owners_lookup(collection_owned_map):
     owners = defaultdict(set)
     for username, ids in (collection_owned_map or {}).items():
@@ -728,6 +765,7 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
     job.total = n
 
     normalized_usernames = sorted({(u or '').strip() for u in (usernames or []) if (u or '').strip()})
+    _purge_untracked_collections(normalized_usernames)
     params = dict(job.params or {})
     params['batch_size'] = batch_size
     if ranks_zip_url:
@@ -794,15 +832,17 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         top_ids = list(top_map.keys())
         log.info('Job %s: Top N list returned %s games', job.id, len(top_ids))
         params_local = job.params or {}
+        progress_value = len(top_ids) if n <= 0 else min(len(top_ids), n)
         params_local["phases"]["top_n"].update(
             {
                 "status": "done",
-                "progress": min(len(top_ids), n),
+                "progress": progress_value,
+                "total": len(top_ids),
                 "finished_at": timezone.now().isoformat(),
             }
         )
         job.params = params_local
-        job.progress = min(len(top_ids), n)
+        job.progress = progress_value
         job.save(update_fields=["params", "progress"])
 
         combined = {gid: dict(top_map[gid]) for gid in top_ids}

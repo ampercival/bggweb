@@ -127,6 +127,7 @@ class BGGClient:
                     reader = csv.DictReader(io.TextIOWrapper(csvfile, encoding='utf-8'))
                     results: Dict[str, Dict] = {}
                     processed = 0
+                    limit = None if n <= 0 else n
                     for row in reader:
                         try:
                             rank_val = int(row.get('rank') or 0)
@@ -164,12 +165,12 @@ class BGGClient:
                             'Owned': 'Not Owned',
                         }
                         processed += 1
-                        if on_progress and processed % 200 == 0:
+                        if on_progress and limit is not None and processed % 200 == 0:
                             try:
-                                on_progress(progress=min(processed, n), total=n)
+                                on_progress(progress=processed, total=limit)
                             except Exception:
                                 pass
-                        if processed >= n:
+                        if limit is not None and processed >= limit:
                             break
         except zipfile.BadZipFile as exc:
             raise RuntimeError('Ranks ZIP was invalid or corrupted.') from exc
@@ -179,7 +180,8 @@ class BGGClient:
 
         if on_progress:
             try:
-                on_progress(progress=min(processed, n), total=n)
+                target = (n if n > 0 else processed) or processed
+                on_progress(progress=processed, total=target)
             except Exception:
                 pass
         return results
