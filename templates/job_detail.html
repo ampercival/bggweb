@@ -1,4 +1,3 @@
-
 {% extends 'base.html' %}
 
 {% block title %}Job #{{ job.id }} &middot; Details{% endblock %}
@@ -8,9 +7,9 @@
   .job-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     flex-wrap: wrap;
-    gap: 1rem;
+    gap: 1.5rem;
     margin-bottom: 1.5rem;
   }
   .status-chip {
@@ -19,9 +18,32 @@
     background: var(--surface-muted);
     border: 1px solid var(--border);
     font-weight: 600;
+    text-transform: capitalize;
+  }
+  .job-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem;
+    box-shadow: var(--shadow);
+    margin-bottom: 2rem;
+  }
+  .job-metadata {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .job-metadata strong {
+    display: block;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
   }
   .progress-wrapper {
-    margin: 1rem 0;
+    margin-top: 0.5rem;
     background: var(--surface-muted);
     border-radius: 10px;
     overflow: hidden;
@@ -33,18 +55,67 @@
     width: 0;
     transition: width 0.3s ease;
   }
-  .job-metadata {
+  .phases-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
   }
-  .job-panel {
+  .phase-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 16px;
-    padding: 1.4rem;
-    box-shadow: var(--shadow);
+    padding: 1.2rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .phase-card.is-active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(56, 132, 255, 0.15);
+  }
+  .phase-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .phase-card h3 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+  .phase-status {
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.75rem;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    font-size: 0.8rem;
+    text-transform: capitalize;
+    white-space: nowrap;
+  }
+  .phase-card dl {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+  .phase-card dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+  }
+  .phase-card dd {
+    margin: 0;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .phase-meta {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    min-height: 1.2rem;
   }
   pre.job-error {
     background: #fdecef;
@@ -63,32 +134,141 @@
     <h1>Job #{{ job.id }}</h1>
     <p class="note">Kind: <strong>{{ job.kind|title }}</strong></p>
   </div>
+  <div>
+    <div class="note" style="margin-bottom:0.35rem;">Total elapsed</div>
+    <div id="totalElapsed" data-created="{{ job.created_at|date:'c' }}"{% if job.finished_at %} data-finished="{{ job.finished_at|date:'c' }}"{% endif %}>--</div>
+  </div>
   <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
 </section>
 
 <div class="job-panel">
-  <h2 id="phaseTitle" style="margin:0 0 0.75rem 0;">Phase: —</h2>
+  <h2 id="phaseTitle" style="margin:0 0 0.75rem 0;">Active phase: --</h2>
   <div class="job-metadata">
     <div>
-      <strong>Progress</strong>
+      <strong>Overall progress</strong>
       <div id="progress">{{ job.progress }} / {{ job.total }}</div>
       <div class="progress-wrapper" aria-hidden="true">
-        <div id="bar" class="progress-bar" style="width: {% if job.total %}{{ job.progress|floatformat:2|add:'0'|floatformat:0|floatformat }}{% else %}0{% endif %}%;"></div>
+        <div id="bar" class="progress-bar"></div>
       </div>
     </div>
     <div>
       <strong>Created</strong>
       <div class="localtime" data-ts="{{ job.created_at|date:'c' }}">{{ job.created_at }}</div>
     </div>
-    {% if job.finished_at %}
     <div>
       <strong>Finished</strong>
-      <div class="localtime" data-ts="{{ job.finished_at|date:'c' }}">{{ job.finished_at }}</div>
+      {% if job.finished_at %}
+        <div class="localtime" data-ts="{{ job.finished_at|date:'c' }}">{{ job.finished_at }}</div>
+      {% else %}
+        <div class="note">Pending</div>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
   <p class="note">This page refreshes automatically to keep you up to date on background processing.</p>
 </div>
+
+{% with phases=phase_context %}
+<section class="page-section">
+  <h2 style="margin-bottom: 1rem;">Phases</h2>
+  <div class="phases-grid">
+    {% with phase=phases.top_n %}
+    <article class="phase-card" data-phase="top_n" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+      <header>
+        <h3>Top N</h3>
+        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
+      </header>
+      <dl>
+        <div>
+          <dt>Progress</dt>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Elapsed</dt>
+          <dd data-role="elapsed">--</dd>
+        </div>
+        <div>
+          <dt>ETA</dt>
+          <dd data-role="eta">--</dd>
+        </div>
+      </dl>
+      <p class="phase-meta" data-role="extra">{% if phase.batch %}Batch size: {{ phase.batch }}{% else %}&nbsp;{% endif %}</p>
+    </article>
+    {% endwith %}
+
+    {% with phase=phases.collection %}
+    <article class="phase-card" data-phase="collection" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+      <header>
+        <h3>Collections</h3>
+        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
+      </header>
+      <dl>
+        <div>
+          <dt>Progress</dt>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Elapsed</dt>
+          <dd data-role="elapsed">--</dd>
+        </div>
+        <div>
+          <dt>ETA</dt>
+          <dd data-role="eta">--</dd>
+        </div>
+      </dl>
+      <p class="phase-meta" data-role="extra">{% if phase.items %}Items synced: {{ phase.items }}{% else %}&nbsp;{% endif %}</p>
+    </article>
+    {% endwith %}
+
+    {% with phase=phases.details %}
+    <article class="phase-card" data-phase="details" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+      <header>
+        <h3>Details</h3>
+        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
+      </header>
+      <dl>
+        <div>
+          <dt>Progress</dt>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Elapsed</dt>
+          <dd data-role="elapsed">--</dd>
+        </div>
+        <div>
+          <dt>ETA</dt>
+          <dd data-role="eta">--</dd>
+        </div>
+      </dl>
+      <p class="phase-meta" data-role="extra">{% if phase.batch %}Batch size: {{ phase.batch }}{% else %}&nbsp;{% endif %}</p>
+    </article>
+    {% endwith %}
+
+    {% with phase=phases.cleanup %}
+    <article class="phase-card" data-phase="cleanup" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:1 }}">
+      <header>
+        <h3>Cleanup</h3>
+        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
+      </header>
+      <dl>
+        <div>
+          <dt>Progress</dt>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Elapsed</dt>
+          <dd data-role="elapsed">--</dd>
+        </div>
+        <div>
+          <dt>ETA</dt>
+          <dd data-role="eta">--</dd>
+        </div>
+      </dl>
+      <p class="phase-meta" data-role="extra">&nbsp;</p>
+    </article>
+    {% endwith %}
+  </div>
+</section>
+{% endwith %}
 
 {% if job.error %}
 <section class="page-section">
@@ -107,14 +287,21 @@
     const phaseTitle = document.getElementById('phaseTitle');
     const progressEl = document.getElementById('progress');
     const barEl = document.getElementById('bar');
+    const totalElapsedEl = document.getElementById('totalElapsed');
+    const phaseCards = new Map(Array.from(document.querySelectorAll('.phase-card')).map(card => [card.dataset.phase, card]));
+    const PHASE_ORDER = ['top_n', 'collection', 'details', 'cleanup'];
 
-    if (barEl) {
-      const initTotal = parseFloat(barEl.dataset.initialTotal || '0');
-      const initProgress = parseFloat(barEl.dataset.initialProgress || '0');
-      if (initTotal) {
-        const pct = Math.min(100, Math.round((initProgress / initTotal) * 100));
-        barEl.style.width = pct + '%';
-      }
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms <= 0) return '0s';
+      const totalSeconds = Math.floor(ms / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts = [];
+      if (hours) parts.push(hours + 'h');
+      if (minutes || hours) parts.push(minutes + 'm');
+      parts.push(seconds + 's');
+      return parts.join(' ');
     }
 
     function refreshTimes() {
@@ -128,43 +315,157 @@
       });
     }
 
-    function prettyPhase(key) {
-      if (!key) return '—';
-      if (key === 'top_n') return 'Top N';
-      return key.charAt(0).toUpperCase() + key.slice(1);      
+    function toTitle(value) {
+      if (!value) return 'Pending';
+      return value.charAt(0).toUpperCase() + value.slice(1);
     }
 
     function getCurrentPhase(phases) {
       if (!phases) return null;
-      const order = ['top_n', 'collection', 'details', 'apply'];
-      for (const k of order) if (phases[k]?.status === 'running') return k;
-      for (const k of order.slice().reverse()) if (phases[k]?.status === 'done') return k;
+      for (const key of PHASE_ORDER) {
+        if ((phases[key] || {}).status === 'running') return key;
+      }
+      for (const key of PHASE_ORDER.slice().reverse()) {
+        if ((phases[key] || {}).status === 'done') return key;
+      }
       return null;
     }
 
+    function updateTotalElapsed(nowMs) {
+      if (!totalElapsedEl) return;
+      const createdTs = totalElapsedEl.dataset.created;
+      if (!createdTs) {
+        totalElapsedEl.textContent = '--';
+        return;
+      }
+      const start = new Date(createdTs).getTime();
+      const finishAttr = totalElapsedEl.dataset.finished;
+      const end = finishAttr ? new Date(finishAttr).getTime() : nowMs;
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        totalElapsedEl.textContent = '--';
+        return;
+      }
+      totalElapsedEl.textContent = formatDuration(Math.max(0, end - start));
+    }
+
+    function updateDurations() {
+      const nowMs = Date.now();
+      updateTotalElapsed(nowMs);
+      phaseCards.forEach(card => {
+        const startAttr = card.dataset.start;
+        const finishAttr = card.dataset.finish;
+        const start = startAttr ? new Date(startAttr).getTime() : null;
+        const finish = finishAttr ? new Date(finishAttr).getTime() : null;
+        const elapsedEl = card.querySelector('[data-role="elapsed"]');
+        if (elapsedEl) {
+          if (start) {
+            const end = finish || nowMs;
+            elapsedEl.textContent = formatDuration(Math.max(0, end - start));
+          } else {
+            elapsedEl.textContent = '--';
+          }
+        }
+        const progress = Number(card.dataset.progress || '0');
+        const total = Number(card.dataset.total || '0');
+        const etaEl = card.querySelector('[data-role="eta"]');
+        if (etaEl) {
+          if (finish) {
+            etaEl.textContent = 'Complete';
+          } else if (start && progress > 0 && total > 0 && total >= progress) {
+            const elapsedMs = nowMs - start;
+            const projected = elapsedMs * (total / progress);
+            const remaining = Math.max(0, projected - elapsedMs);
+            etaEl.textContent = formatDuration(remaining);
+          } else {
+            etaEl.textContent = '--';
+          }
+        }
+      });
+    }
+
+    function updatePhaseCards(phases) {
+      const active = getCurrentPhase(phases);
+      phaseCards.forEach((card, key) => {
+        const data = (phases && phases[key]) || {};
+        const statusText = toTitle(data.status || card.dataset.defaultStatus || 'pending');
+        const statusEl = card.querySelector('[data-role="status"]');
+        if (statusEl) statusEl.textContent = statusText;
+        const progressVal = 'progress' in data ? data.progress || 0 : Number(card.dataset.progress || 0);
+        const totalVal = 'total' in data ? data.total || 0 : Number(card.dataset.total || 0);
+        const progressDisplay = totalVal ? progressVal + ' / ' + totalVal : String(progressVal);
+        const progressEl = card.querySelector('[data-role="progress"]');
+        if (progressEl) progressEl.textContent = progressDisplay;
+        if (data.started_at) {
+          card.dataset.start = data.started_at;
+        } else {
+          delete card.dataset.start;
+        }
+        if (data.finished_at) {
+          card.dataset.finish = data.finished_at;
+        } else {
+          delete card.dataset.finish;
+        }
+        card.dataset.progress = progressVal;
+        card.dataset.total = totalVal;
+        const extraEl = card.querySelector('[data-role="extra"]');
+        if (extraEl) {
+          let extra = '';
+          if (key === 'collection') {
+            const users = data.users_completed ?? data.progress;
+            const totalUsers = data.total ?? 0;
+            const items = data.items ?? null;
+            const parts = [];
+            if (totalUsers) parts.push((users || 0) + '/' + totalUsers + ' users');
+            if (items) parts.push(items + ' items');
+            extra = parts.join(' - ');
+          } else if (key === 'cleanup') {
+            extra = 'Pruning removed games';
+          } else if (data.batch) {
+            extra = 'Batch size: ' + data.batch;
+          }
+          extraEl.textContent = extra || ' ';
+        }
+        card.classList.toggle('is-active', active === key);
+      });
+      updateDurations();
+      return active;
+    }
+
+    function updateOverallProgress(progress, total) {
+      if (progressEl) progressEl.textContent = progress + ' / ' + total;
+      if (barEl) {
+        const pct = total ? Math.min(100, Math.round((progress / total) * 100)) : 0;
+        barEl.style.width = pct + '%';
+      }
+    }
+
     refreshTimes();
+    updateDurations();
+    setInterval(updateDurations, 1000);
 
     function poll() {
       fetch(window.location.href, { headers: { 'x-requested-with': 'XMLHttpRequest' } })
-        .then(resp => resp.ok ? resp.json() : null)
+        .then(resp => (resp.ok ? resp.json() : null))
         .then(data => {
           if (!data) return;
           const status = data.status || '';
-          if (statusChip) statusChip.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-          const phase = data.current_phase || getCurrentPhase(data.phases);
-          if (phaseTitle) phaseTitle.textContent = 'Phase: ' + prettyPhase(phase);
-          if (progressEl) progressEl.textContent = `${data.progress} / ${data.total}`;
-          if (barEl) {
-            const total = parseFloat(data.total || 0);
-            const prog = parseFloat(data.progress || 0);
-            if (total) {
-              const pct = Math.min(100, Math.round((prog / total) * 100));
-              barEl.style.width = pct + '%';
+          if (statusChip) statusChip.textContent = toTitle(status);
+          updateOverallProgress(data.progress || 0, data.total || 0);
+
+          const activePhase = updatePhaseCards(data.phases || {});
+          if (phaseTitle) phaseTitle.textContent = 'Active phase: ' + (activePhase ? toTitle(activePhase.replace('_', ' ')) : '--');
+
+          if (data.created_at && totalElapsedEl) totalElapsedEl.dataset.created = data.created_at;
+          if (totalElapsedEl) {
+            if (data.finished_at) {
+              totalElapsedEl.dataset.finished = data.finished_at;
+            } else {
+              delete totalElapsedEl.dataset.finished;
             }
-            barEl.dataset.initialProgress = prog;
-            barEl.dataset.initialTotal = total;
           }
-          if (data.status && data.status !== 'done' && data.status !== 'error') {
+
+          const done = status === 'done' || status === 'error';
+          if (!done) {
             setTimeout(poll, 1500);
           }
         })

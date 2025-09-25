@@ -105,8 +105,26 @@ def job_detail(request, job_id: int):
             'total': job.total,
             'error': job.error,
             'phases': (job.params or {}).get('phases', {}),
+            'created_at': job.created_at.isoformat(),
+            'finished_at': job.finished_at.isoformat() if job.finished_at else None,
         })
-    return render(request, 'job_detail.html', {'job': job})
+
+    params = job.params or {}
+    if not isinstance(params, dict):
+        params = {}
+    phases_raw = params.get('phases') if isinstance(params, dict) else {}
+    if not isinstance(phases_raw, dict):
+        phases_raw = {}
+    phase_names = ['top_n', 'collection', 'details', 'cleanup']
+    phase_context = {name: (phases_raw.get(name) or {}) for name in phase_names}
+
+    return render(request, 'job_detail.html', {
+        'job': job,
+        'job_params': params,
+        'job_phases': phases_raw,
+        'phase_context': phase_context,
+        'phase_order': phase_names,
+    })
 
 
 def clear_jobs(request):

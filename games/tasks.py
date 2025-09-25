@@ -359,6 +359,267 @@ def _sync_catalog(
     if track_progress and progress_target > 0 and last_progress < progress_target:
         progress_callback(progress_target)
 
+
+
+
+def _build_owners_lookup(collection_owned_map):
+    owners = defaultdict(set)
+    for username, ids in (collection_owned_map or {}).items():
+        if not username:
+            continue
+        for gid in ids:
+            if not gid:
+                continue
+            owners[str(gid)].add(username)
+    return owners
+
+
+def _ensure_collections(usernames):
+    cache = {}
+    normalized = {(u or '').strip() for u in (usernames or []) if (u or '').strip()}
+    for username in sorted(normalized):
+        coll, _ = Collection.objects.get_or_create(username=username)
+        cache[username] = coll
+    return cache
+
+
+def _sync_refresh_chunk(
+    chunk_ids,
+    games_map,
+    details_map,
+    player_counts_map,
+    owners_lookup,
+    collection_cache,
+):
+    if not chunk_ids:
+        return
+
+    games_map = {str(k): v for k, v in (games_map or {}).items()}
+    details_map = {str(k): v for k, v in (details_map or {}).items()}
+    player_counts_map = {str(k): v for k, v in (player_counts_map or {}).items()}
+    owners_lookup = owners_lookup or {}
+
+    normalized_ids = [str(gid) for gid in chunk_ids]
+    normalized_ids = [gid for gid in normalized_ids if gid in games_map or gid in details_map]
+    if not normalized_ids:
+        return
+
+    now = timezone.now()
+
+    existing_games = Game.objects.in_bulk(normalized_ids, field_name='bgg_id')
+    games_to_create = []
+    games_to_update = []
+
+    for gid in normalized_ids:
+        info = games_map.get(gid) or {}
+        detail = details_map.get(gid)
+        if not info and not detail:
+            continue
+
+        game_type = _normalize_type(info.get('Type'))
+        avg_rating = _to_float(info.get('Average Rating'))
+        num_voters = _to_int(info.get('Number of Voters'))
+
+        year_value = detail.get('Year') if detail else None
+        if year_value is not None:
+            year_value = str(year_value)
+
+        weight = _to_float(detail.get('Weight')) if detail else None
+        weight_votes = _to_int(detail.get('Weight Votes')) if detail else None
+
+        bgg_rank = _to_int((detail or {}).get('BGG Rank'))
+        if bgg_rank is None:
+            bgg_rank = _to_int(info.get('BGG Rank'))
+
+        owners_for_gid = sorted(owners_lookup.get(gid, set()))
+
+        if gid in existing_games:
+            game = existing_games[gid]
+            title_value = info.get('Game Title')
+            if title_value:
+                game.title = title_value
+            game.type = game_type
+            game.avg_rating = avg_rating
+            game.num_voters = num_voters
+            if detail is not None:
+                game.year = year_value
+                game.weight = weight
+                game.weight_votes = weight_votes
+                game.bgg_rank = bgg_rank
+            elif bgg_rank is not None:
+                game.bgg_rank = bgg_rank
+            game.owned = bool(owners_for_gid)
+            game.owned_by = owners_for_gid
+            game.updated_at = now
+            games_to_update.append(game)
+        else:
+            games_to_create.append(
+                Game(
+                    bgg_id=gid,
+                    title=info.get('Game Title') or '',
+                    type=game_type,
+                    year=year_value,
+                    avg_rating=avg_rating,
+                    num_voters=num_voters,
+                    weight=weight,
+                    weight_votes=weight_votes,
+                    bgg_rank=bgg_rank,
+                    owned=bool(owners_for_gid),
+                    owned_by=owners_for_gid,
+                )
+            )
+
+    if games_to_create:
+        Game.objects.bulk_create(games_to_create, batch_size=500)
+    if games_to_update:
+        Game.objects.bulk_update(
+            games_to_update,
+            ['title', 'type', 'year', 'avg_rating', 'num_voters', 'weight', 'weight_votes', 'bgg_rank', 'owned', 'owned_by', 'updated_at'],
+            batch_size=500,
+        )
+
+    game_objs = Game.objects.in_bulk(normalized_ids, field_name='bgg_id')
+
+    category_names = set()
+    family_names = set()
+    for gid in normalized_ids:
+        detail = details_map.get(gid)
+        if not detail:
+            continue
+        for name in detail.get('Categories') or []:
+            if name:
+                category_names.add(name)
+        for name in detail.get('Families') or []:
+            if name:
+                family_names.add(name)
+
+    category_map = _collect_vocab(Category, category_names)
+    family_map = _collect_vocab(Family, family_names)
+
+    for gid in normalized_ids:
+        detail = details_map.get(gid)
+        if not detail:
+            continue
+        game = game_objs.get(gid)
+        if not game:
+            continue
+        cat_objs = [category_map[name] for name in (detail.get('Categories') or []) if name in category_map]
+        fam_objs = [family_map[name] for name in (detail.get('Families') or []) if name in family_map]
+        game.categories.set(cat_objs)
+        game.families.set(fam_objs)
+
+    detail_ids = [gid for gid in normalized_ids if gid in details_map]
+    if detail_ids:
+        existing_recs = PlayerCountRecommendation.objects.filter(
+            game__bgg_id__in=detail_ids
+        ).select_related('game')
+        rec_map = {}
+        for rec in existing_recs:
+            rec_map.setdefault(rec.game.bgg_id, {})[rec.count] = rec
+
+        recs_to_update = []
+        recs_to_create = []
+        recs_to_delete = []
+
+        for gid in detail_ids:
+            counts = player_counts_map.get(gid, {}) or {}
+            game = game_objs.get(gid)
+            if not game:
+                continue
+            seen_counts = set()
+            for count, data in counts.items():
+                try:
+                    count_int = int(count)
+                except (TypeError, ValueError):
+                    continue
+                best_pct = _to_float(data.get('Best %')) or 0.0
+                best_votes = _to_int(data.get('Best Votes')) or 0
+                rec_pct = _to_float(data.get('Rec. %')) or 0.0
+                rec_votes = _to_int(data.get('Rec. Votes')) or 0
+                notrec_pct = _to_float(data.get('Not %')) or 0.0
+                notrec_votes = _to_int(data.get('Not Votes')) or 0
+                vote_count = _to_int(data.get('Total Votes')) or 0
+                seen_counts.add(count_int)
+                existing = rec_map.get(gid, {}).get(count_int)
+                if existing:
+                    existing.best_pct = best_pct
+                    existing.best_votes = best_votes
+                    existing.rec_pct = rec_pct
+                    existing.rec_votes = rec_votes
+                    existing.notrec_pct = notrec_pct
+                    existing.notrec_votes = notrec_votes
+                    existing.vote_count = vote_count
+                    recs_to_update.append(existing)
+                else:
+                    recs_to_create.append(
+                        PlayerCountRecommendation(
+                            game=game,
+                            count=count_int,
+                            best_pct=best_pct,
+                            best_votes=best_votes,
+                            rec_pct=rec_pct,
+                            rec_votes=rec_votes,
+                            notrec_pct=notrec_pct,
+                            notrec_votes=notrec_votes,
+                            vote_count=vote_count,
+                        )
+                    )
+            existing_for_game = rec_map.get(gid, {})
+            for count_val, rec_obj in existing_for_game.items():
+                if count_val not in seen_counts:
+                    recs_to_delete.append(rec_obj.id)
+
+        if recs_to_delete:
+            PlayerCountRecommendation.objects.filter(id__in=recs_to_delete).delete()
+        if recs_to_update:
+            PlayerCountRecommendation.objects.bulk_update(
+                recs_to_update,
+                ['best_pct', 'best_votes', 'rec_pct', 'rec_votes', 'notrec_pct', 'notrec_votes', 'vote_count'],
+                batch_size=500,
+            )
+        if recs_to_create:
+            PlayerCountRecommendation.objects.bulk_create(recs_to_create, batch_size=500)
+
+    existing_owned = OwnedGame.objects.filter(game__bgg_id__in=normalized_ids).select_related('collection', 'game')
+    existing_owned_by_gid = defaultdict(dict)
+    for owned in existing_owned:
+        if not owned.collection_id or not owned.game_id:
+            continue
+        existing_owned_by_gid[owned.game.bgg_id][owned.collection.username] = owned
+
+    owned_to_create = []
+    owned_to_delete = []
+
+    for gid in normalized_ids:
+        game = game_objs.get(gid)
+        if not game:
+            continue
+        target_usernames = sorted(owners_lookup.get(gid, set()))
+        existing_for_game = existing_owned_by_gid.get(gid, {})
+        for username in target_usernames:
+            coll = collection_cache.get(username)
+            if coll is None:
+                coll, _ = Collection.objects.get_or_create(username=username)
+                collection_cache[username] = coll
+            if username not in existing_for_game:
+                owned_to_create.append(OwnedGame(collection=coll, game=game))
+        for username, owned_obj in existing_for_game.items():
+            if username not in target_usernames:
+                owned_to_delete.append(owned_obj.id)
+
+    if owned_to_create:
+        OwnedGame.objects.bulk_create(owned_to_create, ignore_conflicts=True)
+    if owned_to_delete:
+        OwnedGame.objects.filter(id__in=owned_to_delete).delete()
+
+
+def _prune_games_after_refresh(desired_ids):
+    desired_ids = [str(gid) for gid in (desired_ids or [])]
+    if desired_ids:
+        Game.objects.exclude(bgg_id__in=desired_ids).delete()
+    else:
+        Game.objects.all().delete()
+
 def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
@@ -459,6 +720,7 @@ def start_background(target, *args, **kwargs):
 
 
 
+
 def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
@@ -495,7 +757,7 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             "total": 0,
             "batch": batch_size,
         },
-        "apply": {"status": "pending", "progress": 0, "total": 0},
+        "cleanup": {"status": "pending", "progress": 0, "total": 1},
     }
     job.params = params
     job.save(update_fields=["status", "progress", "total", "params"])
@@ -628,7 +890,10 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         else:
             collections_map = {}
 
-        all_ids = list(combined.keys())
+        owners_lookup = _build_owners_lookup(collections_map)
+        collection_cache = _ensure_collections(collections_map.keys())
+        all_ids = [str(gid) for gid in combined.keys()]
+
         params_local = job.params or {}
         params_local["phases"]["details"].update(
             {
@@ -639,8 +904,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                 "started_at": timezone.now().isoformat(),
             }
         )
-        if "apply" in params_local.get("phases", {}):
-            params_local["phases"]["apply"].update({"total": len(all_ids)})
         job.params = params_local
         job.total = len(all_ids)
         job.save(update_fields=["total", "params"])
@@ -685,7 +948,18 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             save_throttled(["params", "progress", "total"])
 
         log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(all_ids), batch_size)
-        details, pcounts = client.fetch_details_batches(all_ids, batch_size=batch_size, on_progress=on_details_progress)
+        detail_stream = client.stream_details_batches(all_ids, batch_size=batch_size, on_progress=on_details_progress)
+
+        for chunk_ids, details_chunk, pcounts_chunk in detail_stream:
+            _sync_refresh_chunk(
+                chunk_ids,
+                combined,
+                details_chunk,
+                pcounts_chunk,
+                owners_lookup,
+                collection_cache,
+            )
+
         log.info('Job %s: details phase completed', job.id)
 
         params_local = job.params or {}
@@ -703,77 +977,34 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             job.save(update_fields=["params"])
 
         params_local = job.params or {}
-        if "apply" in params_local.get("phases", {}):
-            params_local["phases"]["apply"].update(
+        if "cleanup" in params_local.get("phases", {}):
+            params_local["phases"]["cleanup"].update(
                 {
                     "status": "running",
                     "progress": 0,
-                    "total": len(all_ids),
+                    "total": 1,
                     "started_at": timezone.now().isoformat(),
                 }
             )
-            # Optional but handy for the UI:
-            params_local["current_phase"] = "apply"
-
+            params_local["current_phase"] = "cleanup"
             job.params = params_local
-            job.progress = 0
-            job.total = len(all_ids)
-            job.save(update_fields=["params", "progress", "total"])
-            log.info('Job %s: applying updates for %s games', job.id, len(all_ids))
+            job.save(update_fields=["params"])
 
-        apply_total = len(all_ids)
-        last_apply_logged = -1
-
-        def on_apply_progress(value: int):
-            nonlocal last_apply_logged
-            if apply_total <= 0:
-                return
-            params_inner = job.params or {}
-            ph = params_inner.get("phases", {}).get("apply", {})
-            new_progress = max(ph.get("progress", 0), min(apply_total, int(value)))
-            if new_progress == ph.get("progress"):
-                return
-
-            ph["progress"] = new_progress
-            ph["updated_at"] = timezone.now().isoformat()
-            params_inner["phases"]["apply"] = ph
-
-            # keep top-level in sync so the page can switch phases
-            job.params = params_inner
-            job.progress = new_progress
-            job.total = apply_total
-            # reuse the throttler defined earlier in run_refresh
-            save_throttled(["params", "progress", "total"])
-
-            if new_progress != last_apply_logged:
-                log.info('Job %s: apply phase %s/%s', job.id, new_progress, apply_total)
-                last_apply_logged = new_progress
-
-        progress_cb = on_apply_progress if apply_total > 0 else None
-        progress_total = apply_total if apply_total > 0 else None
-        _sync_catalog(
-            combined,
-            details,
-            pcounts,
-            collection_owned_map=collections_map,
-            prune=True,
-            progress_callback=progress_cb,
-            progress_total=progress_total,
-        )
-        log.info('Job %s: catalog sync complete for refresh', job.id)
+        _prune_games_after_refresh(all_ids)
+        log.info('Job %s: catalog cleanup complete for refresh', job.id)
 
         params_local = job.params or {}
-        if "apply" in params_local.get("phases", {}):
-            params_local["phases"]["apply"].update(
+        if "cleanup" in params_local.get("phases", {}):
+            params_local["phases"]["cleanup"].update(
                 {
                     "status": "done",
-                    "progress": len(all_ids),
-                    "total": len(all_ids),
+                    "progress": 1,
+                    "total": 1,
                     "finished_at": timezone.now().isoformat(),
                 }
             )
             job.params = params_local
-            log.info('Job %s: apply phase complete', job.id)
+            job.save(update_fields=["params"])
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -783,7 +1014,7 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         params_local["current_phase"] = "done"
         job.params = params_local
         log.info('Job %s: refresh job finished successfully', job.id)
-        
+
     except Exception as e:
         log.exception('Job %s: refresh job failed', job.id)
         job.status = "error"

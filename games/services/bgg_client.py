@@ -2,7 +2,7 @@ import time
 import math
 import logging
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Iterator
 from urllib.parse import urlencode
 import csv
 import io
@@ -324,13 +324,14 @@ class BGGClient:
         return out
 
     # -------- Thing API (details + polls) --------
-    def fetch_details_batches(self, ids: List[str], batch_size: int = 20, on_progress=None) -> Tuple[Dict[str, Dict], Dict[str, Dict]]:
-        # Use a fixed batch size (default 20).
+    def _iter_details_batches(
+        self,
+        ids: List[str],
+        batch_size: int = 20,
+        on_progress=None,
+    ) -> Iterator[Tuple[List[str], Dict[str, Dict], Dict[str, Dict]]]:
         max_ids = batch_size
         batch_size = max(1, min(batch_size, max_ids))
-        updated_games: Dict[str, Dict] = {}
-        player_counts: Dict[str, Dict] = {}
-
         idx = 0
         current_batch = batch_size
         total_ids = len(ids)
@@ -340,7 +341,6 @@ class BGGClient:
             ids_param = ','.join(chunk)
             url = f"https://boardgamegeek.com/xmlapi2/thing?id={ids_param}&stats=1"
             resp = self._get(url, max_retries=8)
-            # Some errors return 200 with a text body complaining about limits
             text_lower = None
             try:
                 root = ET.fromstring(resp.content)
@@ -350,9 +350,7 @@ class BGGClient:
                 except Exception:
                     text_lower = ''
                 if 'cannot load more than' in text_lower and len(chunk) > 1:
-                    # Server refused this batch size; this shouldn't occur at 20, but surface error if it does.
                     raise RuntimeError(f"BGG refused batch size {current_batch}. Message: {text_lower[:120]}")
-                # Unknown parse error; re-raise
                 raise
 
             items = root.findall('item')
@@ -384,8 +382,12 @@ class BGGClient:
                     continue
             queue_retries = 0
 
+            chunk_details: Dict[str, Dict] = {}
+            chunk_counts: Dict[str, Dict] = {}
             for item in items:
                 gid = item.get('id')
+                if not gid:
+                    continue
                 year = None
                 yp = item.find('yearpublished')
                 if yp is not None and yp.get('value'):
@@ -406,7 +408,6 @@ class BGGClient:
                             weight_votes = int(nw.get('value'))
                         except ValueError:
                             pass
-                # boardgame rank
                 bgg_rank = None
                 for rank in item.findall(".//rank"):
                     if rank.get('name') == 'boardgame':
@@ -416,13 +417,11 @@ class BGGClient:
                         else:
                             bgg_rank = None
                         break
-                # categories
                 categories = []
                 for link in item.findall("link[@type='boardgamecategory']"):
                     val = link.get('value')
                     if val:
                         categories.append(val)
-                # families from ranks of type 'family'
                 family_map = {
                     'thematic': 'Thematic',
                     'strategygames': 'Strategy',
@@ -438,7 +437,7 @@ class BGGClient:
                     nm = fr.get('name')
                     if nm and nm in family_map:
                         families.append(family_map[nm])
-                updated_games[gid] = {
+                chunk_details[gid] = {
                     'Year': year,
                     'Weight': weight,
                     'Weight Votes': weight_votes,
@@ -446,7 +445,6 @@ class BGGClient:
                     'Categories': categories,
                     'Families': list(sorted(set(families))),
                 }
-                # poll
                 poll = item.find("poll[@name='suggested_numplayers']")
                 pc_map: Dict[str, Dict] = {}
                 if poll is not None:
@@ -474,14 +472,14 @@ class BGGClient:
                         pc_map[numplayers] = {
                             'Best %': bp,
                             'Best Votes': best,
-                            'Recommended %': rp,
-                            'Recommended Votes': rec,
-                            'Not Recommended %': np,
-                            'Not Recommended Votes': notrec,
-                            'Vote Count': total,
+                            'Rec. %': rp,
+                            'Rec. Votes': rec,
+                            'Not %': np,
+                            'Not Votes': notrec,
+                            'Total Votes': total,
                         }
-                player_counts[gid] = pc_map
-            # After successful processing, advance window and reset batch size (in case it was reduced)
+                chunk_counts[gid] = pc_map
+
             idx += len(chunk)
             if on_progress:
                 try:
@@ -490,5 +488,16 @@ class BGGClient:
                     pass
             current_batch = min(batch_size, max_ids)
             self._sleep(self.detail_throttle_sec)
+            yield chunk, chunk_details, chunk_counts
+
+    def fetch_details_batches(self, ids: List[str], batch_size: int = 20, on_progress=None) -> Tuple[Dict[str, Dict], Dict[str, Dict]]:
+        updated_games: Dict[str, Dict] = {}
+        player_counts: Dict[str, Dict] = {}
+        for chunk_ids, chunk_details, chunk_counts in self._iter_details_batches(ids, batch_size=batch_size, on_progress=on_progress):
+            updated_games.update(chunk_details)
+            player_counts.update(chunk_counts)
         return updated_games, player_counts
+
+    def stream_details_batches(self, ids: List[str], batch_size: int = 20, on_progress=None) -> Iterator[Tuple[List[str], Dict[str, Dict], Dict[str, Dict]]]:
+        yield from self._iter_details_batches(ids, batch_size=batch_size, on_progress=on_progress)
 
