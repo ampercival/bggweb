@@ -19,6 +19,10 @@ DEFAULT_HEADERS = {
     "User-Agent": "bggweb/1.0 (+https://bggweb.onrender.com/)"
 }
 
+API_HEADERS = {
+    "Authorization": "Bearer e8132fd9-97e3-4906-8bb4-186567fc02a7"
+}
+
 
 class BGGClient:
     def __init__(self, session: requests.Session | None = None, throttle_sec: float | None = None, detail_throttle_sec: float | None = None):
@@ -49,6 +53,7 @@ class BGGClient:
         self,
         url: str,
         *,
+        headers: Dict | None = None,
         max_retries: int = 5,
         backoff: float = 2.0,
         fatal_statuses: set[int] | None = None,
@@ -58,7 +63,7 @@ class BGGClient:
         max_rate_retries = max(max_retries * 2, 6)
         while True:
             try:
-                resp = self.session.get(url, timeout=60)
+                resp = self.session.get(url, headers=headers, timeout=60)
                 if resp.status_code == 429:
                     rate_limit_retries += 1
                     retry_after = resp.headers.get("Retry-After")
@@ -269,7 +274,7 @@ class BGGClient:
             url = f"https://boardgamegeek.com/xmlapi2/collection?{urlencode(query)}"
             retries = 0
             while True:
-                resp = self.session.get(url, timeout=60)
+                resp = self.session.get(url, headers=API_HEADERS, timeout=60)
                 if resp.status_code == 202:
                     retries += 1
                     wait = min(5 * retries, 30)
@@ -342,7 +347,7 @@ class BGGClient:
             chunk = ids[idx: idx + current_batch]
             ids_param = ','.join(chunk)
             url = f"https://boardgamegeek.com/xmlapi2/thing?id={ids_param}&stats=1"
-            resp = self._get(url, max_retries=8)
+            resp = self._get(url, headers=API_HEADERS, max_retries=8)
             text_lower = None
             try:
                 root = ET.fromstring(resp.content)

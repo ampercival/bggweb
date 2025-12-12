@@ -51,3 +51,5 @@ wheels/
 Thumbs.db
 desktop.ini
 
+db.sqlite3-wal
+db.sqlite3-shm
