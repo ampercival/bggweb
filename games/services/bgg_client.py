@@ -19,9 +19,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "bggweb/1.0 (+https://bggweb.onrender.com/)"
 }
 
-API_HEADERS = {
-    "Authorization": "Bearer e8132fd9-97e3-4906-8bb4-186567fc02a7"
-}
+
 
 
 class BGGClient:
@@ -43,8 +41,15 @@ class BGGClient:
         self.throttle_sec = throttle_sec if throttle_sec is not None else 1.5
         default_detail = max(self.throttle_sec, 2.5)
         self.detail_throttle_sec = (
-            detail_throttle_sec if detail_throttle_sec is not None else default_detail
+            detail_throttle_sec            if detail_throttle_sec is not None else default_detail
         )
+        
+        token = os.getenv("BGG_API_TOKEN")
+        if token:
+            self.api_headers = {"Authorization": f"Bearer {token}"}
+        else:
+            self.api_headers = {}
+            log.warning("BGG_API_TOKEN not found in environment variables. API calls may fail.")
 
     def _sleep(self, seconds: float | None = None):
         time.sleep(seconds if seconds is not None else self.throttle_sec)
@@ -274,7 +279,7 @@ class BGGClient:
             url = f"https://boardgamegeek.com/xmlapi2/collection?{urlencode(query)}"
             retries = 0
             while True:
-                resp = self.session.get(url, headers=API_HEADERS, timeout=60)
+                resp = self.session.get(url, headers=self.api_headers, timeout=60)
                 if resp.status_code == 202:
                     retries += 1
                     wait = min(5 * retries, 30)
@@ -347,7 +352,7 @@ class BGGClient:
             chunk = ids[idx: idx + current_batch]
             ids_param = ','.join(chunk)
             url = f"https://boardgamegeek.com/xmlapi2/thing?id={ids_param}&stats=1"
-            resp = self._get(url, headers=API_HEADERS, max_retries=8)
+            resp = self._get(url, headers=self.api_headers, max_retries=8)
             text_lower = None
             try:
                 root = ET.fromstring(resp.content)
