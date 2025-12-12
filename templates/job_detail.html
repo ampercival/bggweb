@@ -157,12 +157,20 @@
       data-finished="{{ job.finished_at|date:'c' }}" {% endif %}>--</div>
   </div>
   <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
-  {% if job.status == 'pending' or job.status == 'running' %}
-  <form action="{% url 'cancel_job' job.id %}" method="post" style="display:inline;">
+
+  {% if job.status|lower in 'pending,running' %}
+  <form action="{% url 'cancel_job' job.id %}" method="post" style="display:inline; margin-left: 1rem;">
     {% csrf_token %}
     <button type="submit" class="status-chip"
-      style="background:#fdecef;color:#ba1a1a;border-color:#f2c4cc;cursor:pointer;">Cancel</button>
+      style="background:#fdecef;color:#ba1a1a;border-color:#f2c4cc;cursor:pointer; transition: all 0.2s;"
+      onclick="this.innerText='Cancelling...'; this.style.opacity='0.7';">
+      &times; Cancel Job
+    </button>
   </form>
+  {% elif job.status|lower == 'cancelling' %}
+  <span class="status-chip" style="background:#fff4e5;color:#663c00;border-color:#ffcca0;">
+    Cancelling...
+  </span>
   {% endif %}
 </section>
 

@@ -1,9 +1,9 @@
-import threading
 import time
 import logging
 from collections import defaultdict
 from django.db import close_old_connections
 from django.utils import timezone
+from background_task import background
 
 from .models import (
     Category,
@@ -58,92 +58,24 @@ def _collect_vocab(model, names):
     return existing
 
 
-def _sync_catalog(
-    games_map,
-    details_map,
-    player_counts,
-    *,
-    collection_owned_map=None,
-    prune=False,
-    progress_callback=None,
-    progress_total=None,
-    check_cancelled=None,
-):
-    collection_owned_map = collection_owned_map or {}
-    games_map = {str(k): v for k, v in (games_map or {}).items()}
-    details_map = {str(k): v for k, v in (details_map or {}).items()}
-    player_counts = {str(k): v for k, v in (player_counts or {}).items()}
-
-    normalized_collections = {}
-    for username, ids in collection_owned_map.items():
-        if not username:
-            continue
-        normalized_collections[username] = {str(gid) for gid in ids if gid}
-    collection_owned_map = normalized_collections
-
-    owners_input_by_gid = defaultdict(set)
-    for username, ids in collection_owned_map.items():
-        for gid in ids:
-            owners_input_by_gid[gid].add(username)
-
-    desired_ids = list(games_map.keys())
-    now = timezone.now()
-
-    progress_target = progress_total if progress_total is not None else len(desired_ids)
-    track_progress = bool(progress_callback) and progress_target > 0
-
-    prune_qs = None
-    prune_units = 0
-    games_units = 0
-    relations_units = 0
-    player_units = 0
-    owned_units = 0
-    total_units = 0
-    completed_units = 0
-    last_progress = -1
-
-    def report_units(_add):
-        return
-
-    if track_progress:
-        if prune:
-            prune_qs = Game.objects.exclude(bgg_id__in=desired_ids)
-            prune_units = prune_qs.count()
-        games_units = len(desired_ids)
-        relations_units = len(desired_ids)
-        player_units = sum(len(player_counts.get(gid, {})) for gid in desired_ids)
-        if player_units == 0 and games_units:
-            player_units = games_units
-        owned_units = sum(len(ids) for ids in collection_owned_map.values())
-        total_units = prune_units + games_units + relations_units + player_units + owned_units
-        if total_units <= 0:
-            total_units = 1
-
-        def report_units(add_units):
-            nonlocal completed_units, last_progress
-            if add_units <= 0:
-                return
-            completed_units += add_units
-            if check_cancelled:
-                check_cancelled()
-            progress_value = min(
-                progress_target,
-                max(0, int(round(progress_target * completed_units / total_units))),
-            )
-            if progress_value > last_progress:
-                progress_callback(progress_value)
-                last_progress = progress_value
-
-    if prune:
-        if prune_qs is not None:
-            prune_qs.delete()
-            report_units(prune_units)
-        else:
-            Game.objects.exclude(bgg_id__in=desired_ids).delete()
-
+def _sync_games(desired_ids, games_map, details_map, now):
     existing_games = Game.objects.in_bulk(desired_ids, field_name="bgg_id")
     games_to_create = []
     games_to_update = []
+    
+    # Pre-collect vocab to avoid N+1 queries effectively
+    category_names = set()
+    family_names = set()
+    for gid in desired_ids:
+        detail = details_map.get(gid, {})
+        for name in detail.get("Categories") or []:
+            if name: category_names.add(name)
+        for name in detail.get("Families") or []:
+            if name: family_names.add(name)
+            
+    category_map = _collect_vocab(Category, category_names)
+    family_map = _collect_vocab(Family, family_names)
+
     for gid in desired_ids:
         info = games_map[gid]
         detail = details_map.get(gid, {})
@@ -156,8 +88,19 @@ def _sync_catalog(
         weight = _to_float(detail.get("Weight"))
         weight_votes = _to_int(detail.get("Weight Votes"))
         bgg_rank = _to_int(detail.get("BGG Rank"))
-        owners_for_gid = sorted(owners_input_by_gid.get(gid, set()))
-
+        
+        # Determine ownership just for the Game.owned flag (optimization/denormalization)
+        # Note: Actual ownership relations are handled in _sync_ownership
+        # We need owners_input_by_gid here or we can skip it and let _sync_ownership update it?
+        # The original code did it here. Let's pass it in or update it later.
+        # To keep functions focused, let's defer the "owned" flag update to _sync_ownership 
+        # OR return the games and let the caller handle it. 
+        # Actually, best to handle the basic fields here. 
+        # We'll default owned to False/Empty here if we don't have the context, 
+        # or we accept an `owners_lookup` argument.
+        
+        # Let's pass owners_lookup equivalent.
+        
         if gid in existing_games:
             game = existing_games[gid]
             game.title = info.get("Game Title") or game.title
@@ -182,10 +125,9 @@ def _sync_catalog(
                     weight=weight,
                     weight_votes=weight_votes,
                     bgg_rank=bgg_rank,
-                    owned=bool(owners_for_gid),
-                    owned_by=owners_for_gid,
                     created_at=now,
                     updated_at=now,
+                    owned=False, # Will be updated by _sync_ownership
                 )
             )
 
@@ -195,48 +137,27 @@ def _sync_catalog(
         Game.objects.bulk_update(
             games_to_update,
             [
-                "title",
-                "type",
-                "year",
-                "avg_rating",
-                "num_voters",
-                "weight",
-                "weight_votes",
-                "bgg_rank",
-                "updated_at",
+                "title", "type", "year", "avg_rating", "num_voters",
+                "weight", "weight_votes", "bgg_rank", "updated_at",
             ],
             batch_size=500,
         )
-
+        
+    # Re-fetch or use existing to update M2M
     game_objs = Game.objects.in_bulk(desired_ids, field_name="bgg_id")
-    report_units(games_units)
-
-    category_names = set()
-    family_names = set()
-    for gid in desired_ids:
-        detail = details_map.get(gid, {})
-        for name in detail.get("Categories") or []:
-            if name:
-                category_names.add(name)
-        for name in detail.get("Families") or []:
-            if name:
-                family_names.add(name)
-
-    category_map = _collect_vocab(Category, category_names)
-    family_map = _collect_vocab(Family, family_names)
-
+    
     for gid in desired_ids:
         game = game_objs.get(gid)
-        if not game:
-            continue
+        if not game: continue
         detail = details_map.get(gid, {})
         cat_objs = [category_map[name] for name in (detail.get("Categories") or []) if name in category_map]
         fam_objs = [family_map[name] for name in (detail.get("Families") or []) if name in family_map]
         game.categories.set(cat_objs)
         game.families.set(fam_objs)
 
-    report_units(relations_units)
+    return game_objs
 
+def _sync_player_counts(desired_ids, game_objs, player_counts):
     existing_recs = PlayerCountRecommendation.objects.filter(
         game__bgg_id__in=desired_ids
     ).select_related("game")
@@ -255,7 +176,11 @@ def _sync_catalog(
             continue
         seen_counts = set()
         for count, data in counts.items():
-            count = int(count)
+            try:
+                count = int(count)
+            except (ValueError, TypeError):
+                continue
+            
             best_pct = _to_float(data.get("Best %")) or 0.0
             best_votes = _to_int(data.get("Best Votes")) or 0
             rec_pct = _to_float(data.get("Rec. %")) or 0.0
@@ -298,72 +223,154 @@ def _sync_catalog(
     if recs_to_update:
         PlayerCountRecommendation.objects.bulk_update(
             recs_to_update,
-            [
-                "best_pct",
-                "best_votes",
-                "rec_pct",
-                "rec_votes",
-                "notrec_pct",
-                "notrec_votes",
-                "vote_count",
-            ],
+            ["best_pct", "best_votes", "rec_pct", "rec_votes", "notrec_pct", "notrec_votes", "vote_count"],
             batch_size=500,
         )
     if recs_to_create:
         PlayerCountRecommendation.objects.bulk_create(recs_to_create, batch_size=500)
 
-    report_units(player_units)
-
+def _sync_ownership(collection_owned_map, game_objs, now):
+    # Update OwnedGame and Collection
+    # Also updates Game.owned and Game.owned_by flags
+    
+    # 1. Update Collections and OwnedGame links
+    users_with_games = set()
     if collection_owned_map:
         for username, target_ids in collection_owned_map.items():
             coll, _ = Collection.objects.get_or_create(username=username)
             target_ids = set(target_ids)
+            users_with_games.add(username)
+            
+            # Ensure we have all needed games in game_objs (might need fetching if not in desired_ids)
             missing_ids = [gid for gid in target_ids if gid not in game_objs]
             if missing_ids:
                 game_objs.update(Game.objects.in_bulk(missing_ids, field_name="bgg_id"))
+
             existing_owned = OwnedGame.objects.filter(collection=coll).select_related("game")
             existing_owned_map = {og.game.bgg_id: og for og in existing_owned if og.game_id}
+            
             owned_to_create = []
             for gid in target_ids:
                 if gid not in existing_owned_map:
                     game = game_objs.get(gid)
                     if game:
                         owned_to_create.append(OwnedGame(collection=coll, game=game))
+            
             if owned_to_create:
                 OwnedGame.objects.bulk_create(owned_to_create, ignore_conflicts=True)
+                
             to_remove = [og.id for gid, og in existing_owned_map.items() if gid not in target_ids]
             if to_remove:
                 OwnedGame.objects.filter(id__in=to_remove).delete()
-        report_units(owned_units)
 
-    relevant_ids = set(desired_ids)
-    relevant_ids.update(owners_input_by_gid.keys())
-    if relevant_ids:
-        missing_for_relevant = [gid for gid in relevant_ids if gid not in game_objs]
-        if missing_for_relevant:
-            game_objs.update(Game.objects.in_bulk(missing_for_relevant, field_name="bgg_id"))
-        owner_qs = OwnedGame.objects.filter(game__bgg_id__in=relevant_ids).select_related("collection", "game")
-        owners_by_game_actual = defaultdict(list)
-        for owned in owner_qs:
-            if not owned.collection_id or not owned.game_id:
-                continue
-            owners_by_game_actual[owned.game.bgg_id].append(owned.collection.username)
-        games_to_owner_update = []
-        for gid in relevant_ids:
-            game = game_objs.get(gid)
-            if not game:
-                continue
-            owners = sorted(set(owners_by_game_actual.get(gid, [])))
-            existing = list(game.owned_by or [])
-            if game.owned != bool(owners) or existing != owners:
-                game.owned = bool(owners)
-                game.owned_by = owners
-                game.updated_at = now
-                games_to_owner_update.append(game)
-        if games_to_owner_update:
-            Game.objects.bulk_update(games_to_owner_update, ["owned", "owned_by", "updated_at"], batch_size=500)
+    # 2. Update Denormalized Flags on Game (owned, owned_by)
+    # Re-query ownership for all games involved to ensure correctness
+    # This covers games in game_objs
+    
+    # Get all OwnedGame entries for games in game_objs
+    all_game_ids = list(game_objs.keys())
+    if not all_game_ids:
+        return
 
-    if track_progress and progress_target > 0 and last_progress < progress_target:
+    owned_qs = OwnedGame.objects.filter(game__bgg_id__in=all_game_ids).select_related("collection", "game")
+    owners_by_game = defaultdict(list)
+    for owned in owned_qs:
+        if not owned.collection_id or not owned.game_id or not owned.collection.username:
+            continue
+        owners_by_game[owned.game.bgg_id].append(owned.collection.username)
+        
+    games_to_update = []
+    for gid, game in game_objs.items():
+        owners = sorted(set(owners_by_game.get(gid, [])))
+        existing_owners = list(game.owned_by or [])
+        if game.owned != bool(owners) or existing_owners != owners:
+            game.owned = bool(owners)
+            game.owned_by = owners
+            game.updated_at = now
+            games_to_update.append(game)
+            
+    if games_to_update:
+        Game.objects.bulk_update(games_to_update, ["owned", "owned_by", "updated_at"], batch_size=500)
+
+
+def _sync_catalog(
+    games_map,
+    details_map,
+    player_counts,
+    *,
+    collection_owned_map=None,
+    prune=False,
+    progress_callback=None,
+    progress_total=None,
+    check_cancelled=None,
+):
+    collection_owned_map = collection_owned_map or {}
+    games_map = {str(k): v for k, v in (games_map or {}).items()}
+    details_map = {str(k): v for k, v in (details_map or {}).items()}
+    player_counts = {str(k): v for k, v in (player_counts or {}).items()}
+
+    # Normalize collections
+    normalized_collections = {}
+    for username, ids in collection_owned_map.items():
+        if not username: continue
+        normalized_collections[username] = {str(gid) for gid in ids if gid}
+    collection_owned_map = normalized_collections
+
+    desired_ids = list(games_map.keys())
+    now = timezone.now()
+
+    # Progress Setup
+    progress_target = progress_total if progress_total is not None else len(desired_ids)
+    track_progress = bool(progress_callback) and progress_target > 0
+    completed_units = 0
+    total_units = 1 # avoid div by zero
+    last_progress = -1
+
+    if track_progress:
+        # Estimate units
+        prune_units = Game.objects.exclude(bgg_id__in=desired_ids).count() if prune else 0
+        games_units = len(desired_ids)
+        relations_units = len(desired_ids)
+        player_units = len(player_counts) or games_units
+        owned_units = sum(len(ids) for ids in collection_owned_map.values())
+        total_units = prune_units + games_units + relations_units + player_units + owned_units
+        if total_units <= 0: total_units = 1
+
+    def report_units(add_units):
+        nonlocal completed_units, last_progress
+        if add_units <= 0: return
+        completed_units += add_units
+        if check_cancelled:
+            check_cancelled()
+        if track_progress:
+            val = min(progress_target, max(0, int(round(progress_target * completed_units / total_units))))
+            if val > last_progress:
+                progress_callback(val)
+                last_progress = val
+
+    # 1. Prune
+    if prune:
+        if desired_ids:
+            cnt = Game.objects.exclude(bgg_id__in=desired_ids).delete()[0]
+        else:
+            cnt = Game.objects.all().delete()[0]
+        report_units(cnt)
+
+    # 2. Sync Games
+    game_objs = _sync_games(desired_ids, games_map, details_map, now)
+    report_units(len(desired_ids) * 2) # Approximate for games + relations
+
+    # 3. Sync Player Counts
+    _sync_player_counts(desired_ids, game_objs, player_counts)
+    report_units(len(player_counts) or len(desired_ids))
+
+    # 4. Sync Ownership
+    _sync_ownership(collection_owned_map, game_objs, now)
+    owned_count = sum(len(ids) for ids in collection_owned_map.values())
+    report_units(owned_count)
+
+    # Final Progress
+    if track_progress and last_progress < progress_target:
         progress_callback(progress_target)
 
 
@@ -667,6 +674,7 @@ def _prune_games_after_refresh(desired_ids):
         job.save(update_fields=["status", "error", "finished_at"])
 
 
+@background(schedule=0)
 def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
@@ -728,6 +736,7 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         job.save(update_fields=["status", "error", "finished_at"])
 
 
+@background(schedule=0)
 def run_fetch_collection(job_id: int, username: str):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
@@ -782,21 +791,11 @@ def run_fetch_collection(job_id: int, username: str):
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "error", "finished_at"])
 
-def start_background(target, *args, **kwargs):
-    def _runner():
-        close_old_connections()
-        try:
-            target(*args, **kwargs)
-        finally:
-            close_old_connections()
-
-    th = threading.Thread(target=_runner, daemon=True)
-    th.start()
-    return th
 
 
 
 
+@background(schedule=0)
 def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"

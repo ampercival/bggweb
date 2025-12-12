@@ -5,3 +5,5 @@ psycopg2-binary>=2.9
 python-dotenv>=1.0
 requests>=2.31
 beautifulsoup4>=4.12
+django-background-tasks>=1.2.5
+honcho>=1.1
