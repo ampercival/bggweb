@@ -19,6 +19,10 @@ from .services.bgg_client import BGGClient
 log = logging.getLogger(__name__)
 
 
+class JobCancelled(Exception):
+    pass
+
+
 def _to_float(value):
     try:
         if value in (None, "", "null"):
@@ -63,6 +67,7 @@ def _sync_catalog(
     prune=False,
     progress_callback=None,
     progress_total=None,
+    check_cancelled=None,
 ):
     collection_owned_map = collection_owned_map or {}
     games_map = {str(k): v for k, v in (games_map or {}).items()}
@@ -119,6 +124,8 @@ def _sync_catalog(
             if add_units <= 0:
                 return
             completed_units += add_units
+            if check_cancelled:
+                check_cancelled()
             progress_value = min(
                 progress_target,
                 max(0, int(round(progress_target * completed_units / total_units))),
@@ -657,6 +664,9 @@ def _prune_games_after_refresh(desired_ids):
     else:
         Game.objects.all().delete()
 
+        job.save(update_fields=["status", "error", "finished_at"])
+
+
 def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
     job.status = "running"
@@ -669,15 +679,23 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job.save(update_fields=['status', 'progress', 'total', 'params'])
     log.info('Job %s: starting Top N fetch (n=%s)', job.id, n)
 
+    def check_cancel():
+        job.refresh_from_db(fields=['status'])
+        if job.status == 'cancelling':
+            raise JobCancelled()
+
     ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
     try:
+        check_cancel()
         if not ranks_zip_url:
             raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
         log.info('Job %s: requesting Top N data from BGG', job.id)
         base_map = client.fetch_top_games_ranks(n, zip_url=ranks_zip_url)
         ids = list(base_map.keys())
+        check_cancel()
+        
         log.info('Job %s: received %s ranked games', job.id, len(ids))
         combined = {gid: dict(base_map[gid]) for gid in ids}
         job.total = len(ids)
@@ -686,9 +704,10 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
 
         log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        check_cancel()
         log.info('Job %s: details fetched for Top N job', job.id)
 
-        _sync_catalog(combined, details, pcounts, prune=True)
+        _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for Top N', job.id)
 
         job.status = "done"
@@ -696,6 +715,11 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         job.progress = job.total
         job.save(update_fields=["status", "finished_at", "progress"])
         log.info('Job %s: Top N fetch finished successfully', job.id)
+    except JobCancelled:
+        log.info('Job %s: Top N fetch cancelled', job.id)
+        job.status = "cancelled"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
     except Exception as e:
         log.exception('Job %s: Top N job failed', job.id)
         job.status = "error"
@@ -711,11 +735,19 @@ def run_fetch_collection(job_id: int, username: str):
     job.save(update_fields=["status", "progress"])
     log.info('Job %s: starting collection fetch for user %s', job.id, username)
 
+    def check_cancel():
+        job.refresh_from_db(fields=['status'])
+        if job.status == 'cancelling':
+            raise JobCancelled()
+
     client = BGGClient()
     try:
+        check_cancel()
         log.info('Job %s: requesting owned collection for %s', job.id, username)
         owned_map = client.fetch_owned_collection(username)
         ids = list(owned_map.keys())
+        check_cancel()
+
         log.info('Job %s: collection returned %s items', job.id, len(ids))
         combined = {gid: dict(owned_map[gid]) for gid in ids}
         for gid in ids:
@@ -726,18 +758,25 @@ def run_fetch_collection(job_id: int, username: str):
 
         log.info('Job %s: fetching details for %s collection games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        check_cancel()
         log.info('Job %s: details fetched for collection job', job.id)
 
         collection_map = {username: set(ids)}
-        _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False)
+        _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for collection job', job.id)
 
         job.status = "done"
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "finished_at"])
         log.info('Job %s: collection fetch finished successfully', job.id)
+    except JobCancelled:
+        log.info('Job %s: collection fetch cancelled', job.id)
+        job.status = "cancelled"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
     except Exception as e:
         log.exception('Job %s: collection job failed', job.id)
+        
         job.status = "error"
         job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()
@@ -804,7 +843,13 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
     ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
+    client = BGGClient()
     try:
+        def check_cancel():
+            job.refresh_from_db(fields=['status'])
+            if job.status == 'cancelling':
+                raise JobCancelled()
+
         if not ranks_zip_url:
             raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
         last_save = 0.0
@@ -827,8 +872,13 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             job.progress = ph["progress"]
             save_throttled(["params", "progress"])
 
+            job.progress = ph["progress"]
+            save_throttled(["params", "progress"])
+            check_cancel()
+
         log.info('Job %s: fetching Top N list (n=%s)', job.id, n)
         top_map = client.fetch_top_games_ranks(n, on_progress=on_top_progress, zip_url=ranks_zip_url)
+        check_cancel()
         top_ids = list(top_map.keys())
         log.info('Job %s: Top N list returned %s games', job.id, len(top_ids))
         params_local = job.params or {}
@@ -867,7 +917,11 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                 job.params = params_local
                 job.save(update_fields=["params"])
 
+                job.save(update_fields=["params"])
+
+            check_cancel()
             for idx, username in enumerate(normalized_usernames, 1):
+                check_cancel()
                 def on_coll_progress(**kw):
                     params_inner = job.params or {}
                     ph = params_inner.get("phases", {}).get("collection", {})
@@ -884,7 +938,9 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                     ph["updated_at"] = timezone.now().isoformat()
                     params_inner["phases"]["collection"] = ph
                     job.params = params_inner
+                    job.params = params_inner
                     save_throttled(["params"])
+                    check_cancel()
 
                 log.info('Job %s: fetching owned collection for %s', job.id, username)
                 user_owned_map = client.fetch_owned_collection(username, on_progress=on_coll_progress)
@@ -999,6 +1055,7 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                 owners_lookup,
                 collection_cache,
             )
+            check_cancel()
 
         log.info('Job %s: details phase completed', job.id)
 
@@ -1055,6 +1112,13 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         job.params = params_local
         log.info('Job %s: refresh job finished successfully', job.id)
 
+        log.info('Job %s: refresh job finished successfully', job.id)
+
+    except JobCancelled:
+        log.info('Job %s: refresh job cancelled', job.id)
+        job.status = "cancelled"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
     except Exception as e:
         log.exception('Job %s: refresh job failed', job.id)
         job.status = "error"

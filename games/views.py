@@ -162,6 +162,17 @@ def job_detail(request, job_id: int):
     })
 
 
+@user_passes_test(lambda u: u.is_superuser)
+def cancel_job(request, job_id: int):
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    job = get_object_or_404(FetchJob, id=job_id)
+    if job.status in ('pending', 'running'):
+        job.status = 'cancelling'
+        job.save(update_fields=['status'])
+    return redirect('job_detail', job_id=job.id)
+
+
 def clear_jobs(request):
     if request.method != 'POST':
         return HttpResponse(status=405)

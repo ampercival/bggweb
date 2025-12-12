@@ -6,6 +6,7 @@ urlpatterns = [
     path('', views.home, name='home'),
     path('refresh/', views.refresh, name='refresh'),
     path('jobs/<int:job_id>/', views.job_detail, name='job_detail'),
+    path('jobs/<int:job_id>/cancel/', views.cancel_job, name='cancel_job'),
     path('jobs/clear/', views.clear_jobs, name='clear_jobs'),
     path('games/', views.games_list, name='games_list'),
     path('games/rows/', views.games_rows, name='games_rows'),

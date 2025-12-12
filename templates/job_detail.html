@@ -12,6 +12,7 @@
     gap: 1.5rem;
     margin-bottom: 1.5rem;
   }
+
   .status-chip {
     padding: 0.35rem 0.75rem;
     border-radius: 999px;
@@ -20,6 +21,7 @@
     font-weight: 600;
     text-transform: capitalize;
   }
+
   .job-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -28,12 +30,14 @@
     box-shadow: var(--shadow);
     margin-bottom: 2rem;
   }
+
   .job-metadata {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 1.25rem;
     margin-bottom: 1.25rem;
   }
+
   .job-metadata strong {
     display: block;
     font-size: 0.9rem;
@@ -42,6 +46,7 @@
     color: var(--text-muted);
     margin-bottom: 0.35rem;
   }
+
   .progress-wrapper {
     margin-top: 0.5rem;
     background: var(--surface-muted);
@@ -49,17 +54,20 @@
     overflow: hidden;
     height: 12px;
   }
+
   .progress-bar {
     background: var(--primary);
     height: 100%;
     width: 0;
     transition: width 0.3s ease;
   }
+
   .phases-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1.5rem;
   }
+
   .phase-card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -71,20 +79,24 @@
     box-shadow: var(--shadow-sm);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
+
   .phase-card.is-active {
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(56, 132, 255, 0.15);
   }
+
   .phase-card header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 0.75rem;
   }
+
   .phase-card h3 {
     margin: 0;
     font-size: 1.05rem;
   }
+
   .phase-status {
     padding: 0.2rem 0.6rem;
     border-radius: 0.75rem;
@@ -94,12 +106,14 @@
     text-transform: capitalize;
     white-space: nowrap;
   }
+
   .phase-card dl {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.75rem;
     margin: 0;
   }
+
   .phase-card dt {
     font-size: 0.75rem;
     text-transform: uppercase;
@@ -107,16 +121,19 @@
     color: var(--text-muted);
     margin-bottom: 0.25rem;
   }
+
   .phase-card dd {
     margin: 0;
     font-weight: 600;
     font-size: 0.95rem;
   }
+
   .phase-meta {
     font-size: 0.85rem;
     color: var(--text-muted);
     min-height: 1.2rem;
   }
+
   pre.job-error {
     background: #fdecef;
     border-radius: 12px;
@@ -136,9 +153,17 @@
   </div>
   <div>
     <div class="note" style="margin-bottom:0.35rem;">Total elapsed</div>
-    <div id="totalElapsed" data-created="{{ job.created_at|date:'c' }}"{% if job.finished_at %} data-finished="{{ job.finished_at|date:'c' }}"{% endif %}>--</div>
+    <div id="totalElapsed" data-created="{{ job.created_at|date:'c' }}" {% if job.finished_at %}
+      data-finished="{{ job.finished_at|date:'c' }}" {% endif %}>--</div>
   </div>
   <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
+  {% if job.status == 'pending' or job.status == 'running' %}
+  <form action="{% url 'cancel_job' job.id %}" method="post" style="display:inline;">
+    {% csrf_token %}
+    <button type="submit" class="status-chip"
+      style="background:#fdecef;color:#ba1a1a;border-color:#f2c4cc;cursor:pointer;">Cancel</button>
+  </form>
+  {% endif %}
 </section>
 
 <div class="job-panel">
@@ -158,9 +183,9 @@
     <div>
       <strong>Finished</strong>
       {% if job.finished_at %}
-        <div class="localtime" data-ts="{{ job.finished_at|date:'c' }}">{{ job.finished_at }}</div>
+      <div class="localtime" data-ts="{{ job.finished_at|date:'c' }}">{{ job.finished_at }}</div>
       {% else %}
-        <div class="note">Pending</div>
+      <div class="note">Pending</div>
       {% endif %}
     </div>
   </div>
@@ -172,7 +197,9 @@
   <h2 style="margin-bottom: 1rem;">Phases</h2>
   <div class="phases-grid">
     {% with phase=phases.top_n %}
-    <article class="phase-card" data-phase="top_n" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+    <article class="phase-card" data-phase="top_n" data-start="{{ phase.started_at|default:'' }}"
+      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
+      data-total="{{ phase.total|default:0 }}">
       <header>
         <h3>Top N</h3>
         <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
@@ -180,7 +207,8 @@
       <dl>
         <div>
           <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
+          </dd>
         </div>
         <div>
           <dt>Elapsed</dt>
@@ -196,7 +224,9 @@
     {% endwith %}
 
     {% with phase=phases.collection %}
-    <article class="phase-card" data-phase="collection" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+    <article class="phase-card" data-phase="collection" data-start="{{ phase.started_at|default:'' }}"
+      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
+      data-total="{{ phase.total|default:0 }}">
       <header>
         <h3>Collections</h3>
         <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
@@ -204,7 +234,8 @@
       <dl>
         <div>
           <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
+          </dd>
         </div>
         <div>
           <dt>Elapsed</dt>
@@ -220,7 +251,9 @@
     {% endwith %}
 
     {% with phase=phases.details %}
-    <article class="phase-card" data-phase="details" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:0 }}">
+    <article class="phase-card" data-phase="details" data-start="{{ phase.started_at|default:'' }}"
+      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
+      data-total="{{ phase.total|default:0 }}">
       <header>
         <h3>Details</h3>
         <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
@@ -228,7 +261,8 @@
       <dl>
         <div>
           <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
+          </dd>
         </div>
         <div>
           <dt>Elapsed</dt>
@@ -244,7 +278,9 @@
     {% endwith %}
 
     {% with phase=phases.cleanup %}
-    <article class="phase-card" data-phase="cleanup" data-start="{{ phase.started_at|default:'' }}" data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}" data-total="{{ phase.total|default:1 }}">
+    <article class="phase-card" data-phase="cleanup" data-start="{{ phase.started_at|default:'' }}"
+      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
+      data-total="{{ phase.total|default:1 }}">
       <header>
         <h3>Cleanup</h3>
         <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
@@ -252,7 +288,8 @@
       <dl>
         <div>
           <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}</dd>
+          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
+          </dd>
         </div>
         <div>
           <dt>Elapsed</dt>
@@ -281,8 +318,9 @@
 {% endblock %}
 
 {% block extra_scripts %}
+</script>
 <script>
-  (function() {
+  (function () {
     const statusChip = document.getElementById('statusChip');
     const phaseTitle = document.getElementById('phaseTitle');
     const progressEl = document.getElementById('progress');
@@ -290,6 +328,7 @@
     const totalElapsedEl = document.getElementById('totalElapsed');
     const phaseCards = new Map(Array.from(document.querySelectorAll('.phase-card')).map(card => [card.dataset.phase, card]));
     const PHASE_ORDER = ['top_n', 'collection', 'details', 'cleanup'];
+    let pollingActive = true;
 
     function formatDuration(ms) {
       if (!Number.isFinite(ms) || ms <= 0) return '0s';
@@ -311,7 +350,7 @@
         try {
           const d = new Date(ts);
           el.textContent = d.toLocaleString();
-        } catch (e) {}
+        } catch (e) { }
       });
     }
 
@@ -340,8 +379,20 @@
       }
       const start = new Date(createdTs).getTime();
       const finishAttr = totalElapsedEl.dataset.finished;
-      const end = finishAttr ? new Date(finishAttr).getTime() : nowMs;
-      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      // If finished, use finish time. If running, use now.
+      // If we stopped polling because of error/cancel, we rely on finishAttr being set.
+      if (finishAttr) {
+        const end = new Date(finishAttr).getTime();
+        totalElapsedEl.textContent = formatDuration(Math.max(0, end - start));
+        return;
+      }
+      // If no finish attribute but polling stopped (e.g. cancelled/error without finish time?), stop counting?
+      // Ideally backend sets finished_at. If not, we might count indefinitely unless we check status.
+      // But we have no easy status check here unless we store it globally.
+      // Let's rely on finishAttr.
+
+      const end = nowMs;
+      if (!Number.isFinite(start)) {
         totalElapsedEl.textContent = '--';
         return;
       }
@@ -349,6 +400,11 @@
     }
 
     function updateDurations() {
+      // If polling stopped and we have a finish time, we don't strictly need to keep updating, 
+      // but updating allows us to catch the final set.
+      // However, if we are 'done' or 'error' but finished_at is missing (bug), we don't want to count forever.
+      // Let's rely on the fact that we set data-finished when status is final.
+
       const nowMs = Date.now();
       updateTotalElapsed(nowMs);
       phaseCards.forEach(card => {
@@ -365,6 +421,7 @@
             elapsedEl.textContent = '--';
           }
         }
+        // ... (ETA logic unchanged, omitted for brevity if not changing) ...
         const progress = Number(card.dataset.progress || '0');
         const total = Number(card.dataset.total || '0');
         const etaEl = card.querySelector('[data-role="eta"]');
@@ -441,7 +498,7 @@
 
     refreshTimes();
     updateDurations();
-    setInterval(updateDurations, 1000);
+    const timerInterval = setInterval(updateDurations, 1000);
 
     function poll() {
       fetch(window.location.href, { headers: { 'x-requested-with': 'XMLHttpRequest' } })
@@ -464,8 +521,12 @@
             }
           }
 
-          const done = status === 'done' || status === 'error';
-          if (!done) {
+          const done = status === 'done' || status === 'error' || status === 'cancelled';
+          if (done) {
+            pollingActive = false;
+            updateDurations(); // Perform one final update to ensure 'finished_at' is used
+            clearInterval(timerInterval); // Stop the loop so it doesn't flick back if something is weird, but mainly to save CPU
+          } else {
             setTimeout(poll, 1500);
           }
         })
