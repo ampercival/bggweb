@@ -17,6 +17,8 @@ class Game(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     categories = models.ManyToManyField('Category', blank=True, related_name='games')
     families = models.ManyToManyField('Family', blank=True, related_name='games')
+    mechanics = models.ManyToManyField('Mechanic', blank=True, related_name='games')
+
 
     def __str__(self):
         return f"{self.title} ({self.bgg_id})"
@@ -30,6 +32,13 @@ class Category(models.Model):
 
 
 class Family(models.Model):
+    name = models.CharField(max_length=200, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Mechanic(models.Model):
     name = models.CharField(max_length=200, unique=True)
 
     def __str__(self):

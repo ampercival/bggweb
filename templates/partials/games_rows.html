@@ -13,6 +13,7 @@
   <td>{{ r.type }}</td>
   <td>{{ r.families_str }}</td>
   <td>{{ r.categories_str }}</td>
+  <td>{{ r.mechanics_str }}</td>
   <td>{{ r.player_count }}</td>
   <td>{{ r.best_pct }}</td>
   <td>{{ r.best_votes }}</td>
@@ -25,6 +26,7 @@
   <td>{{ r.playable }}</td>
 </tr>
 {% empty %}
-<tr><td colspan="23">No data yet. Adjust filters or run a refresh on the home page.</td></tr>
+<tr>
+  <td colspan="24">No data yet. Adjust filters or run a refresh on the home page.</td>
+</tr>
 {% endfor %}
-

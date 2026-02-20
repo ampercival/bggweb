@@ -213,7 +213,7 @@ def _compute_rows_context(request):
     num_pages = paginator.num_pages or 1
     
     # Categories & Families Counts
-    cat_counts, fam_counts = game_filter.get_category_counts(qs_pre_category)
+    cat_counts, fam_counts, mec_counts = game_filter.get_category_counts(qs_pre_category)
 
     pinned_display = [
         'Abstract', "Children's Game", 'Customizable', 'Family', 
@@ -227,10 +227,27 @@ def _compute_rows_context(request):
     
     other_names = sorted(cat_counts.keys(), key=lambda x: x.lower())
     other_cat_pairs = [(name, cat_counts.get(name, 0)) for name in other_names]
+
+    mechanic_names = sorted(mec_counts.keys(), key=lambda x: x.lower())
+    # We can just show all mechanics for now, maybe top 20? 
+    # Or mimic structure: top 30?
+    # Let's split into "Top" (by count) and "Rest"?
+    # For now, let's just sort by count desc for top list? 
+    # Users requested collapsible.
+    
+    sorted_mechanics = sorted(mec_counts.items(), key=lambda x: (-x[1], x[0]))
+    top_n_mechanics = 20
+    top_mech_pairs = sorted_mechanics[:top_n_mechanics]
+    other_mech_pairs = sorted_mechanics[top_n_mechanics:]
     
     selected_categories = game_filter._get_list('categories')
+    selected_mechanics = game_filter._get_list('mechanics')
     pinned_norm = {name.lower() for name in pinned_display}
     open_more_categories = any(cat.lower() not in pinned_norm for cat in selected_categories)
+    
+    # Check if any selected mechanic is in 'other' list, if so we might want to default open?
+    top_mech_names = {m[0] for m in top_mech_pairs}
+    open_more_mechanics = any(m not in top_mech_names for m in selected_mechanics)
 
     # Users
     tracked_owner_set = set(BGGUser.objects.values_list('username', flat=True))
@@ -281,8 +298,12 @@ def _compute_rows_context(request):
         'other_categories': [name for name, _ in other_cat_pairs],
         'top_categories_pairs': top_cat_pairs,
         'other_categories_pairs': other_cat_pairs,
+        'top_mechanics_pairs': top_mech_pairs,
+        'other_mechanics_pairs': other_mech_pairs,
         'open_more_categories': open_more_categories,
+        'open_more_mechanics': open_more_mechanics,
         'selected_categories': selected_categories,
+        'selected_mechanics': selected_mechanics,
         'total_games': total_games,
     }
 
@@ -302,6 +323,7 @@ def games_list(request):
         ('type', 'Type'),
         ('families', 'Families'),
         ('categories', 'Categories'),
+        ('mechanics', 'Mechanics'),
         ('player_count', 'Players'),
         ('best_pct', 'Best %'),
         ('best_votes', 'Best votes'),
@@ -310,9 +332,16 @@ def games_list(request):
         ('not_pct', 'Not %'),
         ('not_votes', 'Not votes'),
         ('total_votes', 'Total votes'),
-        ('pc_score', 'PC score'),
+        ('pc_score_unadj', 'Player Count Score (unadjusted)'),
+        ('pc_score', 'Player Count Score'),
         ('playable', 'Playable'),
     ]
+    
+    sortable_columns = {
+        'score_factor', 'title', 'year', 'bgg_rank', 'avg_rating', 
+        'num_voters', 'weight', 'pc_score', 'playable'
+    }
+    context["sortable_columns"] = sortable_columns
     return render(request, 'games_list.html', context)
 
 def games_rows(request):
@@ -345,7 +374,7 @@ def export_csv(request):
     writer = csv.writer(response)
     writer.writerow([
         'Score Factor','Game Title','Game ID','Year','BGG Rank','Average Rating','Number of Voters',
-        'Weight','Weight Votes','Owned','Owners','Type','Categories','Player Count','Best %','Best Votes',
+        'Weight','Weight Votes','Owned','Owners','Type','Categories','Mechanics','Player Count','Best %','Best Votes',
         'Rec. %','Rec. Votes','Not %','Not Votes','Total Votes',
         'Player Count Score (unadjusted)','Player Count Score','Playable'
     ])
@@ -364,6 +393,7 @@ def export_csv(request):
             r.get('owned_by_str'),
             r.get('type'),
             r.get('categories_str'),
+            r.get('mechanics_str'),
             r.get('player_count'),
             r.get('best_pct'),
             r.get('best_votes'),

@@ -26,7 +26,7 @@ class GameFilter:
         # Initial QuerySet
         qs = (
             PlayerCountRecommendation.objects.select_related('game')
-            .prefetch_related('game__categories', 'game__families')
+            .prefetch_related('game__categories', 'game__families', 'game__mechanics')
         )
         
         # Annotations (moved from views.py)
@@ -101,12 +101,16 @@ class GameFilter:
             qs = qs.filter(num_voters_co__gte=min_voters)
 
         categories = self._get_list('categories')
+        mechanics = self._get_list('mechanics')
         qs_pre_category = qs # Snapshot before cat filter for counts
         if categories:
             qs = qs.filter(
                 Q(game__categories__name__in=categories) |
                 Q(game__families__name__in=categories)
             ).distinct()
+            
+        if mechanics:
+            qs = qs.filter(game__mechanics__name__in=mechanics).distinct()
 
         # PC Score Normalization
         pc_stats = qs_for_norm.aggregate(min_pc=Min('pc_score_unadj'), max_pc=Max('pc_score_unadj'))
@@ -170,6 +174,7 @@ class GameFilter:
         # Counts based on qs_pre_category to show available options
         cat_counts = {}
         fam_counts = {}
+        mec_counts = {}
         
         for row in qs.values('game__categories__name').exclude(game__categories__name__isnull=True).annotate(count=Count('id')):
            name = row['game__categories__name']
@@ -178,8 +183,12 @@ class GameFilter:
         for row in qs.values('game__families__name').exclude(game__families__name__isnull=True).annotate(count=Count('id')):
            name = row['game__families__name']
            if name: fam_counts[name] = row['count']
+
+        for row in qs.values('game__mechanics__name').exclude(game__mechanics__name__isnull=True).annotate(count=Count('id')):
+           name = row['game__mechanics__name']
+           if name: mec_counts[name] = row['count']
            
-        return cat_counts, fam_counts
+        return cat_counts, fam_counts, mec_counts
 
     def _get_list(self, key):
         raw = self.params.getlist(key)
@@ -202,6 +211,7 @@ def serialize_game_row(rec, pc_range, pc_min):
     game = rec.game
     categories = list(game.categories.values_list('name', flat=True))
     families = list(game.families.values_list('name', flat=True))
+    mechanics = list(game.mechanics.values_list('name', flat=True))
     owners_list = sorted(list(game.owned_by or []))
     pc_unadj = float(rec.pc_score_unadj or 0.0)
     
@@ -229,6 +239,8 @@ def serialize_game_row(rec, pc_range, pc_min):
         'categories_str': ', '.join(sorted(categories)),
         'families': families,
         'families_str': ', '.join(sorted(families)),
+        'mechanics': mechanics,
+        'mechanics_str': ', '.join(sorted(mechanics)),
         'player_count': rec.count,
         'best_pct': rec.best_pct or 0.0,
         'best_votes': rec.best_votes or 0,

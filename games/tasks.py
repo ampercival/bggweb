@@ -11,6 +11,7 @@ from .models import (
     Family,
     FetchJob,
     Game,
+    Mechanic,
     OwnedGame,
     PlayerCountRecommendation,
 )
@@ -66,15 +67,19 @@ def _sync_games(desired_ids, games_map, details_map, now):
     # Pre-collect vocab to avoid N+1 queries effectively
     category_names = set()
     family_names = set()
+    mechanic_names = set()
     for gid in desired_ids:
         detail = details_map.get(gid, {})
         for name in detail.get("Categories") or []:
             if name: category_names.add(name)
         for name in detail.get("Families") or []:
             if name: family_names.add(name)
+        for name in detail.get("Mechanics") or []:
+            if name: mechanic_names.add(name)
             
     category_map = _collect_vocab(Category, category_names)
     family_map = _collect_vocab(Family, family_names)
+    mechanic_map = _collect_vocab(Mechanic, mechanic_names)
 
     for gid in desired_ids:
         info = games_map[gid]
@@ -152,8 +157,10 @@ def _sync_games(desired_ids, games_map, details_map, now):
         detail = details_map.get(gid, {})
         cat_objs = [category_map[name] for name in (detail.get("Categories") or []) if name in category_map]
         fam_objs = [family_map[name] for name in (detail.get("Families") or []) if name in family_map]
+        mech_objs = [mechanic_map[name] for name in (detail.get("Mechanics") or []) if name in mechanic_map]
         game.categories.set(cat_objs)
         game.families.set(fam_objs)
+        game.mechanics.set(mech_objs)
 
     return game_objs
 
@@ -533,6 +540,7 @@ def _sync_refresh_chunk(
 
     category_names = set()
     family_names = set()
+    mechanic_names = set()
     for gid in normalized_ids:
         detail = details_map.get(gid)
         if not detail:
@@ -543,9 +551,13 @@ def _sync_refresh_chunk(
         for name in detail.get('Families') or []:
             if name:
                 family_names.add(name)
+        for name in detail.get('Mechanics') or []:
+            if name:
+                mechanic_names.add(name)
 
     category_map = _collect_vocab(Category, category_names)
     family_map = _collect_vocab(Family, family_names)
+    mechanic_map = _collect_vocab(Mechanic, mechanic_names)
 
     for gid in normalized_ids:
         detail = details_map.get(gid)
@@ -556,8 +568,10 @@ def _sync_refresh_chunk(
             continue
         cat_objs = [category_map[name] for name in (detail.get('Categories') or []) if name in category_map]
         fam_objs = [family_map[name] for name in (detail.get('Families') or []) if name in family_map]
+        mech_objs = [mechanic_map[name] for name in (detail.get('Mechanics') or []) if name in mechanic_map]
         game.categories.set(cat_objs)
         game.families.set(fam_objs)
+        game.mechanics.set(mech_objs)
 
     detail_ids = [gid for gid in normalized_ids if gid in details_map]
     if detail_ids:

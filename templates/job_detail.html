@@ -13,6 +13,13 @@
     margin-bottom: 1.5rem;
   }
 
+  .job-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
   .status-chip {
     padding: 0.35rem 0.75rem;
     border-radius: 999px;
@@ -142,10 +149,43 @@
     color: #ba1a1a;
     overflow-x: auto;
   }
+
+  .cancel-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.55rem 1rem;
+    border-radius: 12px;
+    border: 1px solid #f2c4cc;
+    background: #fdecef;
+    color: #9b1b28;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.18s ease, transform 0.15s ease;
+  }
+
+  .cancel-button:hover {
+    background: #fad5dd;
+    transform: translateY(-1px);
+  }
+
+  .cancel-button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .cancelling-chip {
+    background: #fff4e5;
+    color: #663c00;
+    border-color: #ffcca0;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
+{% with job_status=job.status|lower %}
 <section class="job-header">
   <div>
     <h1>Job #{{ job.id }}</h1>
@@ -156,23 +196,22 @@
     <div id="totalElapsed" data-created="{{ job.created_at|date:'c' }}" {% if job.finished_at %}
       data-finished="{{ job.finished_at|date:'c' }}" {% endif %}>--</div>
   </div>
-  <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
-
-  {% if job.status|lower in 'pending,running' %}
-  <form action="{% url 'cancel_job' job.id %}" method="post" style="display:inline; margin-left: 1rem;">
-    {% csrf_token %}
-    <button type="submit" class="status-chip"
-      style="background:#fdecef;color:#ba1a1a;border-color:#f2c4cc;cursor:pointer; transition: all 0.2s;"
-      onclick="this.innerText='Cancelling...'; this.style.opacity='0.7';">
-      &times; Cancel Job
-    </button>
-  </form>
-  {% elif job.status|lower == 'cancelling' %}
-  <span class="status-chip" style="background:#fff4e5;color:#663c00;border-color:#ffcca0;">
-    Cancelling...
-  </span>
-  {% endif %}
+  <div class="job-actions">
+    <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
+    <form id="cancelJobForm" action="{% url 'cancel_job' job.id %}" method="post"
+      {% if job_status != 'pending' and job_status != 'running' %}style="display:none;"{% endif %}>
+      {% csrf_token %}
+      <button type="submit" id="cancelJobButton" class="cancel-button" aria-label="Cancel this job">
+        Cancel job
+      </button>
+    </form>
+    <span class="status-chip cancelling-chip" id="cancellingChip"
+      {% if job_status != 'cancelling' %}style="display:none;"{% endif %}>
+      Cancelling...
+    </span>
+  </div>
 </section>
+{% endwith %}
 
 <div class="job-panel">
   <h2 id="phaseTitle" style="margin:0 0 0.75rem 0;">Active phase: --</h2>
@@ -326,7 +365,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-</script>
 <script>
   (function () {
     const statusChip = document.getElementById('statusChip');
@@ -334,9 +372,35 @@
     const progressEl = document.getElementById('progress');
     const barEl = document.getElementById('bar');
     const totalElapsedEl = document.getElementById('totalElapsed');
+    const cancelForm = document.getElementById('cancelJobForm');
+    const cancelButton = document.getElementById('cancelJobButton');
+    const cancellingChip = document.getElementById('cancellingChip');
     const phaseCards = new Map(Array.from(document.querySelectorAll('.phase-card')).map(card => [card.dataset.phase, card]));
     const PHASE_ORDER = ['top_n', 'collection', 'details', 'cleanup'];
     let pollingActive = true;
+
+    if (cancelForm && cancelButton) {
+      cancelForm.addEventListener('submit', () => {
+        cancelButton.disabled = true;
+        cancelButton.textContent = 'Cancelling...';
+      });
+    }
+
+    function toggleCancelControls(status) {
+      const normalized = (status || '').toLowerCase();
+      const isCancellable = normalized === 'pending' || normalized === 'running';
+      if (cancelForm) {
+        cancelForm.style.display = isCancellable ? 'inline-flex' : 'none';
+      }
+      if (cancelButton) {
+        cancelButton.disabled = normalized === 'cancelling';
+      }
+      if (cancellingChip) {
+        cancellingChip.style.display = normalized === 'cancelling' ? 'inline-flex' : 'none';
+      }
+    }
+
+    toggleCancelControls(statusChip ? statusChip.textContent : '');
 
     function formatDuration(ms) {
       if (!Number.isFinite(ms) || ms <= 0) return '0s';
@@ -515,6 +579,7 @@
           if (!data) return;
           const status = data.status || '';
           if (statusChip) statusChip.textContent = toTitle(status);
+          toggleCancelControls(status);
           updateOverallProgress(data.progress || 0, data.total || 0);
 
           const activePhase = updatePhaseCards(data.phases || {});
@@ -534,6 +599,7 @@
             pollingActive = false;
             updateDurations(); // Perform one final update to ensure 'finished_at' is used
             clearInterval(timerInterval); // Stop the loop so it doesn't flick back if something is weird, but mainly to save CPU
+            toggleCancelControls('');
           } else {
             setTimeout(poll, 1500);
           }

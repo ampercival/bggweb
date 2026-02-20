@@ -11,13 +11,16 @@
     gap: 1.5rem;
     margin-bottom: 1.5rem;
   }
+
   .page-lede .intro {
     max-width: 60ch;
   }
+
   .page-lede p {
     color: var(--text-muted);
     margin: 0.35rem 0 0;
   }
+
   .counts-pill {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -26,54 +29,66 @@
     min-width: 240px;
     box-shadow: var(--shadow);
   }
+
   .counts-pill strong {
     font-weight: 700;
   }
+
   .loading-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(245,247,251,0.78);
+    background: rgba(245, 247, 251, 0.78);
     display: none;
     align-items: center;
     justify-content: center;
     z-index: 80;
   }
+
   .loading-backdrop.is-active {
     display: flex;
   }
+
   .loading-spinner {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    border: 4px solid rgba(26,110,240,0.15);
+    border: 4px solid rgba(26, 110, 240, 0.15);
     border-top-color: var(--primary);
     animation: spin 0.9s linear infinite;
   }
+
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
+
   .catalog-layout {
     display: grid;
     grid-template-columns: minmax(280px, 320px) 1fr;
     gap: 2rem;
     align-items: start;
   }
+
   .filters-card {
     position: sticky;
     top: 5.5rem;
     max-height: calc(100vh - 6rem);
     overflow: auto;
   }
+
   .filters-grid {
     display: grid;
     gap: 1.15rem;
   }
+
   .inline-controls {
     display: flex;
     flex-wrap: wrap;
     gap: 0.6rem;
     align-items: center;
   }
+
   #categoriesList,
   .owner-cloud {
     max-height: 210px;
@@ -83,12 +98,15 @@
     padding: 0.6rem;
     background: var(--surface);
   }
-  #categoriesTop, #categoriesListRest,
+
+  #categoriesTop,
+  #categoriesListRest,
   .owner-cloud {
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem 0.75rem;
   }
+
   .cat-item,
   .owner-item {
     display: inline-flex;
@@ -100,25 +118,30 @@
     background: var(--surface-muted);
     font-size: 0.85rem;
   }
+
   .range-field {
     display: grid;
     gap: 0.3rem;
   }
+
   .range-line {
     display: flex;
     align-items: center;
     gap: 0.6rem;
   }
+
   .range-value {
     font-weight: 600;
     color: var(--text-muted);
     min-width: 42px;
     text-align: right;
   }
+
   .results-card {
     display: grid;
     gap: 1.2rem;
   }
+
   .table-toolbar {
     display: flex;
     justify-content: space-between;
@@ -126,10 +149,12 @@
     gap: 1rem;
     align-items: center;
   }
+
   .table-wrapper {
     overflow-x: auto;
     border-radius: 16px;
   }
+
   #pager {
     display: flex;
     align-items: center;
@@ -137,11 +162,13 @@
     flex-wrap: wrap;
     justify-content: space-between;
   }
+
   .pager-group {
     display: flex;
     align-items: center;
     gap: 0.6rem;
   }
+
   .pager-btn {
     padding: 0.4rem 0.8rem;
     border-radius: 10px;
@@ -151,33 +178,40 @@
     font-weight: 600;
     transition: background 0.2s ease;
   }
+
   .pager-btn:hover {
     background: var(--surface-muted);
   }
+
   details#categoriesMore {
     border-top: 1px solid var(--border);
     margin-top: 0.35rem;
     padding-top: 0.35rem;
   }
+
   details#categoriesMore summary {
     cursor: pointer;
     font-weight: 600;
     color: var(--primary);
   }
+
   .form-actions {
     display: flex;
     gap: 0.6rem;
     flex-wrap: wrap;
   }
+
   .ghost-button.small,
   .button.small {
     padding: 0.4rem 0.8rem;
     font-size: 0.9rem;
   }
+
   @media (max-width: 1024px) {
     .catalog-layout {
       grid-template-columns: 1fr;
     }
+
     .filters-card {
       position: static;
       max-height: none;
@@ -190,7 +224,8 @@
 <section class="page-lede">
   <div class="intro">
     <h1>Games catalog</h1>
-    <p>Filter and sort the combined BGG Top N list and tracked collections to uncover the best fit for your next game session.</p>
+    <p>Filter and sort the combined BGG Top N list and tracked collections to uncover the best fit for your next game
+      session.</p>
   </div>
   <div class="counts-pill">
     Showing <strong id="rangeStart">{{ start_idx }}</strong> to <strong id="rangeEnd">{{ end_idx }}</strong>
@@ -240,6 +275,43 @@
         </div>
       </div>
 
+      <div class="filter-field filter-field--full">
+        <label for="mechanicsSearch">Mechanics</label>
+        <div class="inline-controls">
+          <input id="mechanicsSearch" type="text" placeholder="Search mechanics...">
+          <button type="button" id="clearMechanics" class="ghost-button small">Clear</button>
+        </div>
+        <div id="mechanicsList"
+          style="max-height: 210px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem; background: var(--surface);">
+          <div id="mechanicsTop" style="display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem;">
+            {% for pair in top_mechanics_pairs %}
+            {% with mec=pair.0 cnt=pair.1 %}
+            <label class="cat-item" data-name="{{ mec|lower }}">
+              <input type="checkbox" name="mechanics" value="{{ mec }}" {% if mec in selected_mechanics %}checked{% endif %}>
+              <span>{{ mec }} ({{ cnt }})</span>
+            </label>
+            {% endwith %}
+            {% endfor %}
+          </div>
+          {% if other_mechanics_pairs %}
+          <details id="mechanicsMore" {% if open_more_mechanics %}open{% endif %}
+            style="border-top: 1px solid var(--border); margin-top: 0.35rem; padding-top: 0.35rem;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--primary);">Show {{ other_mechanics_pairs|length }} more</summary>
+            <div id="mechanicsListRest" style="display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem;">
+              {% for pair in other_mechanics_pairs %}
+              {% with mec=pair.0 cnt=pair.1 %}
+              <label class="cat-item" data-name="{{ mec|lower }}">
+                <input type="checkbox" name="mechanics" value="{{ mec }}" {% if mec in selected_mechanics %}checked{% endif %}>
+                <span>{{ mec }} ({{ cnt }})</span>
+              </label>
+              {% endwith %}
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+
       <div class="filter-field">
         <label for="search_title">Search title</label>
         <input id="search_title" name="q" value="{{ q }}" type="text" placeholder="Example: Catan">
@@ -256,7 +328,8 @@
           </label>
           {% endfor %}
         </div>
-        <button type="button" id="clearOwners" class="ghost-button small" style="margin-top:0.4rem;">Clear owners</button>
+        <button type="button" id="clearOwners" class="ghost-button small" style="margin-top:0.4rem;">Clear
+          owners</button>
         {% else %}
         <p class="note">No BGG owners yet. Fetch collections to enable this filter.</p>
         {% endif %}
@@ -299,11 +372,13 @@
         <label>Year range</label>
         <div class="range-field">
           <div class="range-line">
-            <input id="min_year" name="min_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ min_year|default:year_slider_min }}">
+            <input id="min_year" name="min_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}"
+              step="1" value="{{ min_year|default:year_slider_min }}">
             <span class="range-value" id="min_year_val"></span>
           </div>
           <div class="range-line">
-            <input id="max_year" name="max_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}" step="1" value="{{ max_year|default:year_slider_max }}">
+            <input id="max_year" name="max_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}"
+              step="1" value="{{ max_year|default:year_slider_max }}">
             <span class="range-value" id="max_year_val"></span>
           </div>
         </div>
@@ -313,11 +388,13 @@
         <label>Average rating</label>
         <div class="range-field">
           <div class="range-line">
-            <input id="min_avg_rating" name="min_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ min_avg_rating|default:'0' }}">
+            <input id="min_avg_rating" name="min_avg_rating" type="range" min="0" max="10" step="0.1"
+              value="{{ min_avg_rating|default:'0' }}">
             <span class="range-value" id="min_avg_rating_val"></span>
           </div>
           <div class="range-line">
-            <input id="max_avg_rating" name="max_avg_rating" type="range" min="0" max="10" step="0.1" value="{{ max_avg_rating|default:'10' }}">
+            <input id="max_avg_rating" name="max_avg_rating" type="range" min="0" max="10" step="0.1"
+              value="{{ max_avg_rating|default:'10' }}">
             <span class="range-value" id="max_avg_rating_val"></span>
           </div>
         </div>
@@ -327,11 +404,13 @@
         <label>Weight</label>
         <div class="range-field">
           <div class="range-line">
-            <input id="min_weight" name="min_weight" type="range" min="0" max="5" step="0.1" value="{{ min_weight|default:'0' }}">
+            <input id="min_weight" name="min_weight" type="range" min="0" max="5" step="0.1"
+              value="{{ min_weight|default:'0' }}">
             <span class="range-value" id="min_weight_val"></span>
           </div>
           <div class="range-line">
-            <input id="max_weight" name="max_weight" type="range" min="0" max="5" step="0.1" value="{{ max_weight|default:'5' }}">
+            <input id="max_weight" name="max_weight" type="range" min="0" max="5" step="0.1"
+              value="{{ max_weight|default:'5' }}">
             <span class="range-value" id="max_weight_val"></span>
           </div>
         </div>
@@ -339,7 +418,8 @@
 
       <div class="filter-field">
         <label for="min_voters">Minimum voters</label>
-        <input id="min_voters" name="min_voters" type="number" min="0" value="{{ min_voters }}" placeholder="Example: 1000">
+        <input id="min_voters" name="min_voters" type="number" min="0" value="{{ min_voters }}"
+          placeholder="Example: 1000">
       </div>
 
       <div class="filter-field">
@@ -369,7 +449,8 @@
     <div class="table-toolbar">
       <div>
         <strong>Live results</strong>
-        <p class="note" style="margin:0.25rem 0 0;">Sort columns or adjust filters to focus on the games that will work best for your group.</p>
+        <p class="note" style="margin:0.25rem 0 0;">Sort columns or adjust filters to focus on the games that will work
+          best for your group.</p>
       </div>
       <div class="pager-group">
         <button type="button" id="prevPage" class="pager-btn" aria-label="Previous page">Prev</button>
@@ -378,30 +459,30 @@
       </div>
     </div>
 
-  <div class="table-wrapper" role="region" aria-live="polite">
-    <table class="data-table">
-      <thead>
-        <tr>
-          {% for column, label in column_label_pairs %}
-            {% if column == 'score_factor' or column == 'title' or column == 'year' or column == 'bgg_rank' or column == 'avg_rating' or column == 'num_voters' or column == 'weight' or column == 'pc_score' or column == 'playable' %}
-              <th>
-                <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}"
-                  data-sort="{{ column }}"
-                  data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
-                  {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
-                </a>
-              </th>
+    <div class="table-wrapper" role="region" aria-live="polite">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for column, label in column_label_pairs %}
+            {% if column in sortable_columns %}
+            <th>
+              <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}"
+                data-sort="{{ column }}"
+                data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
+                {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
+              </a>
+            </th>
             {% else %}
-              <th>{{ label }}</th>
+            <th>{{ label }}</th>
             {% endif %}
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody id="rows">
-        {% include 'partials/games_rows.html' with rows=rows %}
-      </tbody>
-    </table>
-  </div>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody id="rows">
+          {% include 'partials/games_rows.html' with rows=rows %}
+        </tbody>
+      </table>
+    </div>
 
     <div id="pager">
       <div class="pager-group">
@@ -409,7 +490,8 @@
         <span>Page <strong id="pageDisplay">{{ page }}</strong> of <strong id="pagesTotal">{{ num_pages }}</strong></span>
         <button type="button" id="nextPage" class="pager-btn">Next</button>
       </div>
-      <p class="note" style="margin:0;">Keyboard tip: once the table is focused you can scroll horizontally with the arrow keys.</p>
+      <p class="note" style="margin:0;">Keyboard tip: once the table is focused you can scroll horizontally with the
+        arrow keys.</p>
     </div>
   </section>
 </div>
@@ -417,240 +499,270 @@
 
 {% block extra_scripts %}
 <script>
-    function clampRanges(minEl, maxEl) {
-      const minv = parseFloat(minEl.value);
-      const maxv = parseFloat(maxEl.value);
-      if (minv > maxv) {
-        maxEl.value = minv;
-      }
+  function clampRanges(minEl, maxEl) {
+    const minv = parseFloat(minEl.value);
+    const maxv = parseFloat(maxEl.value);
+    if (minv > maxv) {
+      maxEl.value = minv;
     }
-    function updateLabels() {
-      const minAR = document.getElementById('min_avg_rating');
-      const maxAR = document.getElementById('max_avg_rating');
-      const minAW = document.getElementById('min_weight');
-      const maxAW = document.getElementById('max_weight');
-      const minY = document.getElementById('min_year');
-      const maxY = document.getElementById('max_year');
-      if (minAR && maxAR) {
-        clampRanges(minAR, maxAR);
-        document.getElementById('min_avg_rating_val').textContent = parseFloat(minAR.value).toFixed(1);
-        document.getElementById('max_avg_rating_val').textContent = parseFloat(maxAR.value).toFixed(1);
-      }
-      if (minAW && maxAW) {
-        clampRanges(minAW, maxAW);
-        document.getElementById('min_weight_val').textContent = parseFloat(minAW.value).toFixed(1);
-        document.getElementById('max_weight_val').textContent = parseFloat(maxAW.value).toFixed(1);
-      }
-      if (minY && maxY) {
-        clampRanges(minY, maxY);
-        document.getElementById('min_year_val').textContent = parseInt(minY.value);
-        document.getElementById('max_year_val').textContent = parseInt(maxY.value);
-      }
+  }
+  function updateLabels() {
+    const minAR = document.getElementById('min_avg_rating');
+    const maxAR = document.getElementById('max_avg_rating');
+    const minAW = document.getElementById('min_weight');
+    const maxAW = document.getElementById('max_weight');
+    const minY = document.getElementById('min_year');
+    const maxY = document.getElementById('max_year');
+    if (minAR && maxAR) {
+      clampRanges(minAR, maxAR);
+      document.getElementById('min_avg_rating_val').textContent = parseFloat(minAR.value).toFixed(1);
+      document.getElementById('max_avg_rating_val').textContent = parseFloat(maxAR.value).toFixed(1);
     }
-    ['min_avg_rating','max_avg_rating','min_weight','max_weight','min_year','max_year'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el) el.addEventListener('input', updateLabels);
-    });
-    updateLabels();
-
-    var loadingIndicator = document.getElementById('loadingIndicator');
-
-    function buildQuery() {
-      var form = document.getElementById('filtersForm');
-      var fd = new FormData(form);
-      var params = new URLSearchParams();
-      for (var pair of fd.entries()) {
-        var key = pair[0];
-        var value = pair[1];
-        if (value === null || value === '') continue;
-        if (key === 'categories' || key === 'owners') {
-          params.append(key, value);
-        } else {
-          params.set(key, value);
-        }
-      }
-      return params.toString();
+    if (minAW && maxAW) {
+      clampRanges(minAW, maxAW);
+      document.getElementById('min_weight_val').textContent = parseFloat(minAW.value).toFixed(1);
+      document.getElementById('max_weight_val').textContent = parseFloat(maxAW.value).toFixed(1);
     }
-
-    async function updateRows() {
-      var qs = buildQuery();
-      var url = new URL(window.location.origin + "{% url 'games_rows' %}");
-      url.search = qs;
-      if (loadingIndicator) loadingIndicator.classList.add('is-active');
-      try {
-        var resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
-        if (!resp.ok) return;
-        var data = await resp.json();
-        var tbody = document.getElementById('rows');
-        if (tbody) tbody.innerHTML = data.html;
-        var countEl = document.getElementById('rowsCount');
-        if (countEl) countEl.textContent = data.count;
-        var totalGamesEl = document.getElementById('totalGames');
-        if (totalGamesEl && Object.prototype.hasOwnProperty.call(data, 'total_games') && data.total_games != null) {
-          totalGamesEl.textContent = data.total_games;
-        }
-        if (sortInput && dirInput) {
-          updateSortIndicators(sortInput.value || 'score_factor', dirInput.value || 'desc');
-        }
-        var rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
-        var re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
-        var pd = document.getElementById('pageDisplay'); if (pd) pd.textContent = data.page;
-        var pt = document.getElementById('pagesTotal'); if (pt) pt.textContent = data.num_pages;
-        var pageUrl = new URL(window.location.href);
-        pageUrl.search = qs;
-        window.history.replaceState({}, '', pageUrl);
-      } catch (e) {
-        /* keep current table */
-      } finally {
-        if (loadingIndicator) loadingIndicator.classList.remove('is-active');
-      }
+    if (minY && maxY) {
+      clampRanges(minY, maxY);
+      document.getElementById('min_year_val').textContent = parseInt(minY.value);
+      document.getElementById('max_year_val').textContent = parseInt(maxY.value);
     }
+  }
+  ['min_avg_rating', 'max_avg_rating', 'min_weight', 'max_weight', 'min_year', 'max_year'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateLabels);
+  });
+  updateLabels();
 
+  var loadingIndicator = document.getElementById('loadingIndicator');
+
+  function buildQuery() {
     var form = document.getElementById('filtersForm');
-    var timer = null;
-    function submitDebounced(delay) {
-      if (delay === void 0) { delay = 400; }
-      if (!form) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(function() {
-        updateRows();
-      }, delay);
+    var fd = new FormData(form);
+    var params = new URLSearchParams();
+    for (var pair of fd.entries()) {
+      var key = pair[0];
+      var value = pair[1];
+      if (value === null || value === '') continue;
+      if (key === 'categories' || key === 'owners') {
+        params.append(key, value);
+      } else {
+        params.set(key, value);
+      }
     }
+    return params.toString();
+  }
 
-    if (form) {
-      form.querySelectorAll('select, input[type="checkbox"]').forEach(function(el) {
-        el.addEventListener('change', function() { submitDebounced(10); });
-      });
-      form.querySelectorAll('input[type="text"]:not(#categoriesSearch), input[type="number"], input[type="range"]').forEach(function(el) {
-        el.addEventListener('input', function() { submitDebounced(400); });
-      });
-      form.querySelectorAll('input[name="q"], input[type="checkbox"][name="owners"], select[name="type"], select[name="playable"], select[name="player_count"], input[type="checkbox"][name="categories"], input[name="min_year"], input[name="max_year"], input[name="min_avg_rating"], input[name="max_avg_rating"], input[name="min_weight"], input[name="max_weight"], input[name="min_voters"]').forEach(function(el) {
-        el.addEventListener('change', function() { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
-        el.addEventListener('input', function() { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
-      });
+  async function updateRows() {
+    var qs = buildQuery();
+    var url = new URL(window.location.origin + "{% url 'games_rows' %}");
+    url.search = qs;
+    if (loadingIndicator) loadingIndicator.classList.add('is-active');
+    try {
+      var resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
+      if (!resp.ok) return;
+      var data = await resp.json();
+      var tbody = document.getElementById('rows');
+      if (tbody) tbody.innerHTML = data.html;
+      var countEl = document.getElementById('rowsCount');
+      if (countEl) countEl.textContent = data.count;
+      var totalGamesEl = document.getElementById('totalGames');
+      if (totalGamesEl && Object.prototype.hasOwnProperty.call(data, 'total_games') && data.total_games != null) {
+        totalGamesEl.textContent = data.total_games;
+      }
+      if (sortInput && dirInput) {
+        updateSortIndicators(sortInput.value || 'score_factor', dirInput.value || 'desc');
+      }
+      var rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
+      var re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
+      var pd = document.getElementById('pageDisplay'); if (pd) pd.textContent = data.page;
+      var pt = document.getElementById('pagesTotal'); if (pt) pt.textContent = data.num_pages;
+      var pageUrl = new URL(window.location.href);
+      pageUrl.search = qs;
+      window.history.replaceState({}, '', pageUrl);
+    } catch (e) {
+      /* keep current table */
+    } finally {
+      if (loadingIndicator) loadingIndicator.classList.remove('is-active');
     }
+  }
 
-    var headerLinks = document.querySelectorAll('th a[data-sort]');
-    var sortInput = form ? form.querySelector('[name="sort"]') : null;
-    var dirInput = form ? form.querySelector('[name="dir"]') : null;
+  var form = document.getElementById('filtersForm');
+  var timer = null;
+  function submitDebounced(delay) {
+    if (delay === void 0) { delay = 400; }
+    if (!form) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () {
+      updateRows();
+    }, delay);
+  }
 
-    function updateSortIndicators(currentSort, currentDir) {
-      headerLinks.forEach(function(link) {
-        var arrow = link.querySelector('.sort-arrow');
-        if (!arrow) return;
-        if (link.dataset.sort === currentSort) {
-          arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
-          link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
-        } else {
-          arrow.textContent = '';
-          link.dataset.nextDir = 'desc';
-        }
-      });
-    }
-
-    if (form && sortInput && dirInput) {
-      updateSortIndicators(sortInput.value || '{{ sort|default:"score_factor" }}', dirInput.value || '{{ dir|default:"desc" }}');
-    } else {
-      updateSortIndicators('{{ sort|default:"score_factor" }}', '{{ dir|default:"desc" }}');
-    }
-
-    headerLinks.forEach(function(link) {
-      link.addEventListener('click', function(event) {
-        if (!form || !sortInput || !dirInput) {
-          return;
-        }
-        event.preventDefault();
-        var sortKey = link.dataset.sort;
-        var nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
-        sortInput.value = sortKey;
-        dirInput.value = nextDir;
-        var pageInput = form.querySelector('[name="page"]');
-        if (pageInput) pageInput.value = '1';
-        updateSortIndicators(sortKey, nextDir);
-        submitDebounced(10);
-      });
+  if (form) {
+    form.querySelectorAll('select, input[type="checkbox"]').forEach(function (el) {
+      el.addEventListener('change', function () { submitDebounced(10); });
     });
+    form.querySelectorAll('input[type="text"]:not(#categoriesSearch):not(#mechanicsSearch), input[type="number"], input[type="range"]').forEach(function (el) {
+      el.addEventListener('input', function () { submitDebounced(400); });
+    });
+    form.querySelectorAll('input[name="q"], input[type="checkbox"][name="owners"], select[name="type"], select[name="playable"], select[name="player_count"], input[type="checkbox"][name="categories"], input[type="checkbox"][name="mechanics"], input[name="min_year"], input[name="max_year"], input[name="min_avg_rating"], input[name="max_avg_rating"], input[name="min_weight"], input[name="max_weight"], input[name="min_voters"]').forEach(function (el) {
+      el.addEventListener('change', function () { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
+      el.addEventListener('input', function () { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
+    });
+  }
 
-    var resetBtn = document.getElementById('resetDefaults');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', function() {
-        var formEl = resetBtn.closest('form');
-        if (!formEl) return;
-        formEl.querySelector('[name="q"]').value = '';
-        formEl.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function(cb) { cb.checked = false; });
-        formEl.querySelector('[name="type"]').value = 'all';
-        formEl.querySelector('[name="playable"]').value = 'playable';
-        formEl.querySelector('[name="player_count"]').value = 'all';
-        var minYear = formEl.querySelector('#min_year'); if (minYear) minYear.value = '{{ year_slider_min }}';
-        var maxYear = formEl.querySelector('#max_year'); if (maxYear) maxYear.value = '{{ year_slider_max }}';
-        var minAR = formEl.querySelector('#min_avg_rating'); if (minAR) minAR.value = '0';
-        var maxAR = formEl.querySelector('#max_avg_rating'); if (maxAR) maxAR.value = '10';
-        var minW = formEl.querySelector('#min_weight'); if (minW) minW.value = '0';
-        var maxW = formEl.querySelector('#max_weight'); if (maxW) maxW.value = '5';
-        var minV = formEl.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
-        if (sortInput) sortInput.value = 'score_factor';
-        if (dirInput) dirInput.value = 'desc';
-        updateSortIndicators('score_factor', 'desc');
-        var p = formEl.querySelector('[name="page"]'); if (p) p.value = '1';
-        var ps = formEl.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
-        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function(cb) { cb.checked = false; });
-        updateLabels();
-        updateRows();
-      });
-    }
+  var headerLinks = document.querySelectorAll('th a[data-sort]');
+  var sortInput = form ? form.querySelector('[name="sort"]') : null;
+  var dirInput = form ? form.querySelector('[name="dir"]') : null;
 
-    var catSearch = document.getElementById('categoriesSearch');
-    if (catSearch) {
-      var catSearchTimer = null;
-      catSearch.addEventListener('input', function() {
-        if (catSearchTimer) clearTimeout(catSearchTimer);
-        catSearchTimer = setTimeout(function() {
-          var q = (catSearch.value || '').toLowerCase();
-          var items = document.querySelectorAll('#categoriesList .cat-item');
-          items.forEach(function(el) {
-            var name = el.getAttribute('data-name') || '';
-            el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
-          });
-          var more = document.getElementById('categoriesMore');
-          if (more) {
-            if (q) more.setAttribute('open', 'open');
-            else more.removeAttribute('open');
-          }
-        }, 200);
-      });
-    }
-    var clearOwnersBtn = document.getElementById('clearOwners');
-    if (clearOwnersBtn) {
-      clearOwnersBtn.addEventListener('click', function() {
-        document.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function(cb) { cb.checked = false; });
-        var p = document.getElementById('page_input'); if (p) p.value = '1';
-        submitDebounced(10);
-      });
-    }
+  function updateSortIndicators(currentSort, currentDir) {
+    headerLinks.forEach(function (link) {
+      var arrow = link.querySelector('.sort-arrow');
+      if (!arrow) return;
+      if (link.dataset.sort === currentSort) {
+        arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
+        link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
+      } else {
+        arrow.textContent = '';
+        link.dataset.nextDir = 'desc';
+      }
+    });
+  }
 
-    var clearCats = document.getElementById('clearCategories');
-    if (clearCats) {
-      clearCats.addEventListener('click', function() {
-        document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function(cb) { cb.checked = false; });
-        var p = document.getElementById('page_input'); if (p) p.value = '1';
-        submitDebounced(10);
-      });
-    }
+  if (form && sortInput && dirInput) {
+    updateSortIndicators(sortInput.value || '{{ sort|default:"score_factor" }}', dirInput.value || '{{ dir|default:"desc" }}');
+  } else {
+    updateSortIndicators('{{ sort|default:"score_factor" }}', '{{ dir|default:"desc" }}');
+  }
 
-    var prevBtn = document.getElementById('prevPage');
-    var nextBtn = document.getElementById('nextPage');
-    function changePage(delta) {
-      var p = document.getElementById('page_input');
-      var total = parseInt(document.getElementById('pagesTotal') ? document.getElementById('pagesTotal').textContent : '1', 10);
-      var cur = parseInt(p ? p.value : '1', 10);
-      if (isNaN(cur) || cur < 1) cur = 1;
-      var next = cur + delta;
-      if (next < 1) next = 1;
-      if (next > total) next = total;
-      if (p) p.value = String(next);
+  headerLinks.forEach(function (link) {
+    link.addEventListener('click', function (event) {
+      if (!form || !sortInput || !dirInput) {
+        return;
+      }
+      event.preventDefault();
+      var sortKey = link.dataset.sort;
+      var nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
+      sortInput.value = sortKey;
+      dirInput.value = nextDir;
+      var pageInput = form.querySelector('[name="page"]');
+      if (pageInput) pageInput.value = '1';
+      updateSortIndicators(sortKey, nextDir);
       submitDebounced(10);
-    }
-    if (prevBtn) prevBtn.addEventListener('click', function() { changePage(-1); });
-    if (nextBtn) nextBtn.addEventListener('click', function() { changePage(1); });
-  </script>
+    });
+  });
+
+  var resetBtn = document.getElementById('resetDefaults');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function () {
+      var formEl = resetBtn.closest('form');
+      if (!formEl) return;
+      formEl.querySelector('[name="q"]').value = '';
+      formEl.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function (cb) { cb.checked = false; });
+      formEl.querySelector('[name="type"]').value = 'all';
+      formEl.querySelector('[name="playable"]').value = 'playable';
+      formEl.querySelector('[name="player_count"]').value = 'all';
+      var minYear = formEl.querySelector('#min_year'); if (minYear) minYear.value = '{{ year_slider_min }}';
+      var maxYear = formEl.querySelector('#max_year'); if (maxYear) maxYear.value = '{{ year_slider_max }}';
+      var minAR = formEl.querySelector('#min_avg_rating'); if (minAR) minAR.value = '0';
+      var maxAR = formEl.querySelector('#max_avg_rating'); if (maxAR) maxAR.value = '10';
+      var minW = formEl.querySelector('#min_weight'); if (minW) minW.value = '0';
+      var maxW = formEl.querySelector('#max_weight'); if (maxW) maxW.value = '5';
+      var minV = formEl.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
+      if (sortInput) sortInput.value = 'score_factor';
+      if (dirInput) dirInput.value = 'desc';
+      updateSortIndicators('score_factor', 'desc');
+      var p = formEl.querySelector('[name="page"]'); if (p) p.value = '1';
+      var ps = formEl.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
+      document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function (cb) { cb.checked = false; });
+      document.querySelectorAll('input[type="checkbox"][name="mechanics"]').forEach(function (cb) { cb.checked = false; });
+      updateLabels();
+      updateRows();
+    });
+  }
+
+  var catSearch = document.getElementById('categoriesSearch');
+  if (catSearch) {
+    var catSearchTimer = null;
+    catSearch.addEventListener('input', function () {
+      if (catSearchTimer) clearTimeout(catSearchTimer);
+      catSearchTimer = setTimeout(function () {
+        var q = (catSearch.value || '').toLowerCase();
+        var items = document.querySelectorAll('#categoriesList .cat-item');
+        items.forEach(function (el) {
+          var name = el.getAttribute('data-name') || '';
+          el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
+        });
+        var more = document.getElementById('categoriesMore');
+        if (more) {
+          if (q) more.setAttribute('open', 'open');
+          else more.removeAttribute('open');
+        }
+      }, 200);
+    });
+  }
+  var clearOwnersBtn = document.getElementById('clearOwners');
+  if (clearOwnersBtn) {
+    clearOwnersBtn.addEventListener('click', function () {
+      document.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function (cb) { cb.checked = false; });
+      var p = document.getElementById('page_input'); if (p) p.value = '1';
+      submitDebounced(10);
+    });
+  }
+
+  var clearCats = document.getElementById('clearCategories');
+  if (clearCats) {
+    clearCats.addEventListener('click', function () {
+      document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function (cb) { cb.checked = false; });
+      var p = document.getElementById('page_input'); if (p) p.value = '1';
+      submitDebounced(10);
+    });
+  }
+
+  var mecSearch = document.getElementById('mechanicsSearch');
+  if (mecSearch) {
+    var mecSearchTimer = null;
+    mecSearch.addEventListener('input', function () {
+      if (mecSearchTimer) clearTimeout(mecSearchTimer);
+      mecSearchTimer = setTimeout(function () {
+        var q = (mecSearch.value || '').toLowerCase();
+        var items = document.querySelectorAll('#mechanicsList .cat-item');
+        items.forEach(function (el) {
+          var name = el.getAttribute('data-name') || '';
+          el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
+        });
+        var more = document.getElementById('mechanicsMore');
+        if (more) {
+          if (q) more.setAttribute('open', 'open');
+          else more.removeAttribute('open');
+        }
+      }, 200);
+    });
+  }
+  var clearMecs = document.getElementById('clearMechanics');
+  if (clearMecs) {
+    clearMecs.addEventListener('click', function () {
+      document.querySelectorAll('input[type="checkbox"][name="mechanics"]').forEach(function (cb) { cb.checked = false; });
+      var p = document.getElementById('page_input'); if (p) p.value = '1';
+      submitDebounced(10);
+    });
+  }
+
+  var prevBtn = document.getElementById('prevPage');
+  var nextBtn = document.getElementById('nextPage');
+  function changePage(delta) {
+    var p = document.getElementById('page_input');
+    var total = parseInt(document.getElementById('pagesTotal') ? document.getElementById('pagesTotal').textContent : '1', 10);
+    var cur = parseInt(p ? p.value : '1', 10);
+    if (isNaN(cur) || cur < 1) cur = 1;
+    var next = cur + delta;
+    if (next < 1) next = 1;
+    if (next > total) next = total;
+    if (p) p.value = String(next);
+    submitDebounced(10);
+  }
+  if (prevBtn) prevBtn.addEventListener('click', function () { changePage(-1); });
+  if (nextBtn) nextBtn.addEventListener('click', function () { changePage(1); });
+</script>
 {% endblock %}

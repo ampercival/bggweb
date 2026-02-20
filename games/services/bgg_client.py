@@ -434,6 +434,11 @@ class BGGClient:
                     val = link.get('value')
                     if val:
                         categories.append(val)
+                mechanics = []
+                for link in item.findall("link[@type='boardgamemechanic']"):
+                    val = link.get('value')
+                    if val:
+                        mechanics.append(val)
                 family_map = {
                     'thematic': 'Thematic',
                     'strategygames': 'Strategy',
@@ -455,6 +460,7 @@ class BGGClient:
                     'Weight Votes': weight_votes,
                     'BGG Rank': bgg_rank,
                     'Categories': categories,
+                    'Mechanics': mechanics,
                     'Families': list(sorted(set(families))),
                 }
                 poll = item.find("poll[@name='suggested_numplayers']")
