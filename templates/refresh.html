@@ -261,18 +261,4 @@
 </section>
 {% endblock %}
 
-{% block extra_scripts %}
-<script>
-  (function() {
-    const els = document.querySelectorAll('.localtime');
-    els.forEach(el => {
-      const ts = el.getAttribute('data-ts');
-      if (!ts) return;
-      try {
-        const d = new Date(ts);
-        el.textContent = d.toLocaleString();
-      } catch (e) {}
-    });
-  })();
-</script>
-{% endblock %}
+{% comment %}Local-time conversion is handled globally by static/js/site.js.{% endcomment %}

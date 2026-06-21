@@ -1,7 +1,6 @@
 import time
 import logging
 from collections import defaultdict
-from django.db import close_old_connections
 from django.utils import timezone
 from background_task import background
 
@@ -16,6 +15,7 @@ from .models import (
     PlayerCountRecommendation,
 )
 from .services.bgg_client import BGGClient
+from .utils import recompute_owned_flags
 
 log = logging.getLogger(__name__)
 
@@ -59,35 +59,55 @@ def _collect_vocab(model, names):
     return existing
 
 
+def _apply_relations(ids, game_objs, details_map):
+    """Resolve category/family/mechanic vocab from ``details_map`` and set the
+    M2M relations for each game. Shared by the catalog and refresh sync paths."""
+    category_names = set()
+    family_names = set()
+    mechanic_names = set()
+    for gid in ids:
+        detail = details_map.get(gid)
+        if not detail:
+            continue
+        for name in detail.get("Categories") or []:
+            if name:
+                category_names.add(name)
+        for name in detail.get("Families") or []:
+            if name:
+                family_names.add(name)
+        for name in detail.get("Mechanics") or []:
+            if name:
+                mechanic_names.add(name)
+
+    category_map = _collect_vocab(Category, category_names)
+    family_map = _collect_vocab(Family, family_names)
+    mechanic_map = _collect_vocab(Mechanic, mechanic_names)
+
+    for gid in ids:
+        detail = details_map.get(gid)
+        if not detail:
+            continue
+        game = game_objs.get(gid)
+        if not game:
+            continue
+        cat_objs = [category_map[name] for name in (detail.get("Categories") or []) if name in category_map]
+        fam_objs = [family_map[name] for name in (detail.get("Families") or []) if name in family_map]
+        mech_objs = [mechanic_map[name] for name in (detail.get("Mechanics") or []) if name in mechanic_map]
+        game.categories.set(cat_objs)
+        game.families.set(fam_objs)
+        game.mechanics.set(mech_objs)
+
+
 def _sync_games(desired_ids, games_map, details_map, now):
     existing_games = Game.objects.in_bulk(desired_ids, field_name="bgg_id")
     games_to_create = []
     games_to_update = []
-    
-    # Pre-collect vocab to avoid N+1 queries effectively
-    category_names = set()
-    family_names = set()
-    mechanic_names = set()
-    for gid in desired_ids:
-        detail = details_map.get(gid, {})
-        for name in detail.get("Categories") or []:
-            if name: category_names.add(name)
-        for name in detail.get("Families") or []:
-            if name: family_names.add(name)
-        for name in detail.get("Mechanics") or []:
-            if name: mechanic_names.add(name)
-            
-    category_map = _collect_vocab(Category, category_names)
-    family_map = _collect_vocab(Family, family_names)
-    mechanic_map = _collect_vocab(Mechanic, mechanic_names)
 
     for gid in desired_ids:
         info = games_map[gid]
         detail = details_map.get(gid, {})
         game_type = _normalize_type(info.get("Type"))
-        year = detail.get("Year")
-        if year is not None:
-            year = str(year)
+        year = _to_int(detail.get("Year"))
         avg_rating = _to_float(info.get("Average Rating"))
         num_voters = _to_int(info.get("Number of Voters"))
         weight = _to_float(detail.get("Weight"))
@@ -148,19 +168,9 @@ def _sync_games(desired_ids, games_map, details_map, now):
             batch_size=500,
         )
         
-    # Re-fetch or use existing to update M2M
+    # Re-fetch or use existing to update M2M relations
     game_objs = Game.objects.in_bulk(desired_ids, field_name="bgg_id")
-    
-    for gid in desired_ids:
-        game = game_objs.get(gid)
-        if not game: continue
-        detail = details_map.get(gid, {})
-        cat_objs = [category_map[name] for name in (detail.get("Categories") or []) if name in category_map]
-        fam_objs = [family_map[name] for name in (detail.get("Families") or []) if name in family_map]
-        mech_objs = [mechanic_map[name] for name in (detail.get("Mechanics") or []) if name in mechanic_map]
-        game.categories.set(cat_objs)
-        game.families.set(fam_objs)
-        game.mechanics.set(mech_objs)
+    _apply_relations(desired_ids, game_objs, details_map)
 
     return game_objs
 
@@ -401,22 +411,7 @@ def _purge_untracked_collections(active_usernames):
     purge_qs.delete()
     if not affected_game_ids:
         return
-    remaining_owned = OwnedGame.objects.filter(game_id__in=affected_game_ids).select_related('collection', 'game')
-    owners_by_game = defaultdict(list)
-    for owned in remaining_owned:
-        if owned.collection_id and owned.collection.username:
-            owners_by_game[owned.game_id].append(owned.collection.username)
-    games_to_update = []
-    now = timezone.now()
-    for game in Game.objects.filter(id__in=affected_game_ids):
-        owners = sorted(set(owners_by_game.get(game.id, [])))
-        if game.owned != bool(owners) or list(game.owned_by or []) != owners:
-            game.owned = bool(owners)
-            game.owned_by = owners
-            game.updated_at = now
-            games_to_update.append(game)
-    if games_to_update:
-        Game.objects.bulk_update(games_to_update, ['owned', 'owned_by', 'updated_at'])
+    recompute_owned_flags(affected_game_ids)
 
 
 
@@ -478,9 +473,7 @@ def _sync_refresh_chunk(
         avg_rating = _to_float(info.get('Average Rating'))
         num_voters = _to_int(info.get('Number of Voters'))
 
-        year_value = detail.get('Year') if detail else None
-        if year_value is not None:
-            year_value = str(year_value)
+        year_value = _to_int(detail.get('Year')) if detail else None
 
         weight = _to_float(detail.get('Weight')) if detail else None
         weight_votes = _to_int(detail.get('Weight Votes')) if detail else None
@@ -538,112 +531,11 @@ def _sync_refresh_chunk(
 
     game_objs = Game.objects.in_bulk(normalized_ids, field_name='bgg_id')
 
-    category_names = set()
-    family_names = set()
-    mechanic_names = set()
-    for gid in normalized_ids:
-        detail = details_map.get(gid)
-        if not detail:
-            continue
-        for name in detail.get('Categories') or []:
-            if name:
-                category_names.add(name)
-        for name in detail.get('Families') or []:
-            if name:
-                family_names.add(name)
-        for name in detail.get('Mechanics') or []:
-            if name:
-                mechanic_names.add(name)
-
-    category_map = _collect_vocab(Category, category_names)
-    family_map = _collect_vocab(Family, family_names)
-    mechanic_map = _collect_vocab(Mechanic, mechanic_names)
-
-    for gid in normalized_ids:
-        detail = details_map.get(gid)
-        if not detail:
-            continue
-        game = game_objs.get(gid)
-        if not game:
-            continue
-        cat_objs = [category_map[name] for name in (detail.get('Categories') or []) if name in category_map]
-        fam_objs = [family_map[name] for name in (detail.get('Families') or []) if name in family_map]
-        mech_objs = [mechanic_map[name] for name in (detail.get('Mechanics') or []) if name in mechanic_map]
-        game.categories.set(cat_objs)
-        game.families.set(fam_objs)
-        game.mechanics.set(mech_objs)
+    _apply_relations(normalized_ids, game_objs, details_map)
 
     detail_ids = [gid for gid in normalized_ids if gid in details_map]
     if detail_ids:
-        existing_recs = PlayerCountRecommendation.objects.filter(
-            game__bgg_id__in=detail_ids
-        ).select_related('game')
-        rec_map = {}
-        for rec in existing_recs:
-            rec_map.setdefault(rec.game.bgg_id, {})[rec.count] = rec
-
-        recs_to_update = []
-        recs_to_create = []
-        recs_to_delete = []
-
-        for gid in detail_ids:
-            counts = player_counts_map.get(gid, {}) or {}
-            game = game_objs.get(gid)
-            if not game:
-                continue
-            seen_counts = set()
-            for count, data in counts.items():
-                try:
-                    count_int = int(count)
-                except (TypeError, ValueError):
-                    continue
-                best_pct = _to_float(data.get('Best %')) or 0.0
-                best_votes = _to_int(data.get('Best Votes')) or 0
-                rec_pct = _to_float(data.get('Rec. %')) or 0.0
-                rec_votes = _to_int(data.get('Rec. Votes')) or 0
-                notrec_pct = _to_float(data.get('Not %')) or 0.0
-                notrec_votes = _to_int(data.get('Not Votes')) or 0
-                vote_count = _to_int(data.get('Total Votes')) or 0
-                seen_counts.add(count_int)
-                existing = rec_map.get(gid, {}).get(count_int)
-                if existing:
-                    existing.best_pct = best_pct
-                    existing.best_votes = best_votes
-                    existing.rec_pct = rec_pct
-                    existing.rec_votes = rec_votes
-                    existing.notrec_pct = notrec_pct
-                    existing.notrec_votes = notrec_votes
-                    existing.vote_count = vote_count
-                    recs_to_update.append(existing)
-                else:
-                    recs_to_create.append(
-                        PlayerCountRecommendation(
-                            game=game,
-                            count=count_int,
-                            best_pct=best_pct,
-                            best_votes=best_votes,
-                            rec_pct=rec_pct,
-                            rec_votes=rec_votes,
-                            notrec_pct=notrec_pct,
-                            notrec_votes=notrec_votes,
-                            vote_count=vote_count,
-                        )
-                    )
-            existing_for_game = rec_map.get(gid, {})
-            for count_val, rec_obj in existing_for_game.items():
-                if count_val not in seen_counts:
-                    recs_to_delete.append(rec_obj.id)
-
-        if recs_to_delete:
-            PlayerCountRecommendation.objects.filter(id__in=recs_to_delete).delete()
-        if recs_to_update:
-            PlayerCountRecommendation.objects.bulk_update(
-                recs_to_update,
-                ['best_pct', 'best_votes', 'rec_pct', 'rec_votes', 'notrec_pct', 'notrec_votes', 'vote_count'],
-                batch_size=500,
-            )
-        if recs_to_create:
-            PlayerCountRecommendation.objects.bulk_create(recs_to_create, batch_size=500)
+        _sync_player_counts(detail_ids, game_objs, player_counts_map)
 
     existing_owned = OwnedGame.objects.filter(game__bgg_id__in=normalized_ids).select_related('collection', 'game')
     existing_owned_by_gid = defaultdict(dict)
@@ -684,8 +576,6 @@ def _prune_games_after_refresh(desired_ids):
         Game.objects.exclude(bgg_id__in=desired_ids).delete()
     else:
         Game.objects.all().delete()
-
-        job.save(update_fields=["status", "error", "finished_at"])
 
 
 @background(schedule=0)
@@ -856,7 +746,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
     ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
-    client = BGGClient()
     try:
         def check_cancel():
             job.refresh_from_db(fields=['status'])
@@ -882,9 +771,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             ph["updated_at"] = timezone.now().isoformat()
             params_local["phases"]["top_n"] = ph
             job.params = params_local
-            job.progress = ph["progress"]
-            save_throttled(["params", "progress"])
-
             job.progress = ph["progress"]
             save_throttled(["params", "progress"])
             check_cancel()
@@ -930,8 +816,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                 job.params = params_local
                 job.save(update_fields=["params"])
 
-                job.save(update_fields=["params"])
-
             check_cancel()
             for idx, username in enumerate(normalized_usernames, 1):
                 check_cancel()
@@ -950,7 +834,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                         ph["current_items"] = kw["items"]
                     ph["updated_at"] = timezone.now().isoformat()
                     params_inner["phases"]["collection"] = ph
-                    job.params = params_inner
                     job.params = params_inner
                     save_throttled(["params"])
                     check_cancel()
@@ -1123,8 +1006,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         params_local = job.params or {}
         params_local["current_phase"] = "done"
         job.params = params_local
-        log.info('Job %s: refresh job finished successfully', job.id)
-
         log.info('Job %s: refresh job finished successfully', job.id)
 
     except JobCancelled:

@@ -1,20 +1,49 @@
 from datetime import datetime
 from django.db.models import (
-    Case,
     Count,
     ExpressionWrapper,
     F,
     FloatField,
-    IntegerField,
     Max,
     Min,
     OrderBy,
     Q,
     Value,
-    When,
 )
-from django.db.models.functions import Cast, Coalesce
-from .models import BGGUser, Collection, PlayerCountRecommendation
+from django.db.models.functions import Coalesce
+from django.utils import timezone
+from .models import Game, OwnedGame, PlayerCountRecommendation
+
+
+def recompute_owned_flags(game_ids):
+    """Recompute the denormalized ``Game.owned`` / ``Game.owned_by`` fields for
+    the given Game primary keys based on the current ``OwnedGame`` rows.
+
+    This is the single source of truth for keeping the denormalized ownership
+    fields in sync with the ``OwnedGame`` through-table.
+    """
+    unique_ids = {gid for gid in (game_ids or []) if gid}
+    if not unique_ids:
+        return
+    owned_rows = OwnedGame.objects.filter(game_id__in=unique_ids).select_related(
+        "collection", "game"
+    )
+    owners_by_game = {}
+    for owned in owned_rows:
+        if not owned.game_id or not owned.collection_id or not owned.collection.username:
+            continue
+        owners_by_game.setdefault(owned.game_id, set()).add(owned.collection.username)
+    updates = []
+    now = timezone.now()
+    for game in Game.objects.filter(id__in=unique_ids):
+        owners = sorted(owners_by_game.get(game.id, []))
+        if game.owned != bool(owners) or list(game.owned_by or []) != owners:
+            game.owned = bool(owners)
+            game.owned_by = owners
+            game.updated_at = now
+            updates.append(game)
+    if updates:
+        Game.objects.bulk_update(updates, ["owned", "owned_by", "updated_at"])
 
 class GameFilter:
     def __init__(self, request_get):
@@ -37,11 +66,7 @@ class GameFilter:
             avg_rating_co=Coalesce('game__avg_rating', Value(0.0)),
             weight_co=Coalesce('game__weight', Value(0.0)),
             num_voters_co=Coalesce('game__num_voters', Value(0)),
-            year_int=Case(
-                When(game__year__regex=r'^\d+$', then=Cast('game__year', IntegerField())),
-                default=None,
-                output_field=IntegerField(),
-            ),
+            year_int=F('game__year'),
         ).annotate(
             pc_score_unadj=ExpressionWrapper(
                 F('best_pct_c') * Value(3.0)
@@ -209,9 +234,11 @@ class GameFilter:
 
 def serialize_game_row(rec, pc_range, pc_min):
     game = rec.game
-    categories = list(game.categories.values_list('name', flat=True))
-    families = list(game.families.values_list('name', flat=True))
-    mechanics = list(game.mechanics.values_list('name', flat=True))
+    # Use ``.all()`` (not ``.values_list``) so the prefetched M2M cache is
+    # reused instead of issuing a fresh query per row.
+    categories = [c.name for c in game.categories.all()]
+    families = [f.name for f in game.families.all()]
+    mechanics = [m.name for m in game.mechanics.all()]
     owners_list = sorted(list(game.owned_by or []))
     pc_unadj = float(rec.pc_score_unadj or 0.0)
     

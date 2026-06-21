@@ -22,11 +22,12 @@
   <td>{{ r.not_pct }}</td>
   <td>{{ r.not_votes }}</td>
   <td>{{ r.total_votes }}</td>
+  <td>{{ r.pc_score_unadj }}</td>
   <td>{{ r.pc_score }}</td>
   <td>{{ r.playable }}</td>
 </tr>
 {% empty %}
 <tr>
-  <td colspan="24">No data yet. Adjust filters or run a refresh on the home page.</td>
+  <td colspan="25">No data yet. Adjust filters or run a refresh on the home page.</td>
 </tr>
 {% endfor %}

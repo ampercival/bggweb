@@ -453,9 +453,9 @@
           best for your group.</p>
       </div>
       <div class="pager-group">
-        <button type="button" id="prevPage" class="pager-btn" aria-label="Previous page">Prev</button>
-        <span>Page <strong id="pageDisplay">{{ page }}</strong> of <strong id="pagesTotal">{{ num_pages }}</strong></span>
-        <button type="button" id="nextPage" class="pager-btn" aria-label="Next page">Next</button>
+        <button type="button" class="pager-btn js-prev" aria-label="Previous page">Prev</button>
+        <span>Page <strong class="js-page-display">{{ page }}</strong> of <strong class="js-pages-total">{{ num_pages }}</strong></span>
+        <button type="button" class="pager-btn js-next" aria-label="Next page">Next</button>
       </div>
     </div>
 
@@ -465,7 +465,7 @@
           <tr>
             {% for column, label in column_label_pairs %}
             {% if column in sortable_columns %}
-            <th>
+            <th aria-sort="{% if sort == column %}{% if dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}">
               <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}"
                 data-sort="{{ column }}"
                 data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
@@ -486,9 +486,9 @@
 
     <div id="pager">
       <div class="pager-group">
-        <button type="button" id="prevPage" class="pager-btn">Previous</button>
-        <span>Page <strong id="pageDisplay">{{ page }}</strong> of <strong id="pagesTotal">{{ num_pages }}</strong></span>
-        <button type="button" id="nextPage" class="pager-btn">Next</button>
+        <button type="button" class="pager-btn js-prev" aria-label="Previous page">Previous</button>
+        <span>Page <strong class="js-page-display">{{ page }}</strong> of <strong class="js-pages-total">{{ num_pages }}</strong></span>
+        <button type="button" class="pager-btn js-next" aria-label="Next page">Next</button>
       </div>
       <p class="note" style="margin:0;">Keyboard tip: once the table is focused you can scroll horizontally with the
         arrow keys.</p>
@@ -561,7 +561,7 @@
     if (loadingIndicator) loadingIndicator.classList.add('is-active');
     try {
       var resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
-      if (!resp.ok) return;
+      if (!resp.ok) { showLoadError(); return; }
       var data = await resp.json();
       var tbody = document.getElementById('rows');
       if (tbody) tbody.innerHTML = data.html;
@@ -576,15 +576,22 @@
       }
       var rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
       var re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
-      var pd = document.getElementById('pageDisplay'); if (pd) pd.textContent = data.page;
-      var pt = document.getElementById('pagesTotal'); if (pt) pt.textContent = data.num_pages;
+      document.querySelectorAll('.js-page-display').forEach(function (el) { el.textContent = data.page; });
+      document.querySelectorAll('.js-pages-total').forEach(function (el) { el.textContent = data.num_pages; });
       var pageUrl = new URL(window.location.href);
       pageUrl.search = qs;
       window.history.replaceState({}, '', pageUrl);
     } catch (e) {
-      /* keep current table */
+      showLoadError();
     } finally {
       if (loadingIndicator) loadingIndicator.classList.remove('is-active');
+    }
+  }
+
+  function showLoadError() {
+    var tbody = document.getElementById('rows');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="25" style="color:#b91c1c;">Could not update results. Check your connection and try again.</td></tr>';
     }
   }
 
@@ -619,13 +626,15 @@
   function updateSortIndicators(currentSort, currentDir) {
     headerLinks.forEach(function (link) {
       var arrow = link.querySelector('.sort-arrow');
-      if (!arrow) return;
+      var th = link.closest('th');
       if (link.dataset.sort === currentSort) {
-        arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
+        if (arrow) arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
         link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
+        if (th) th.setAttribute('aria-sort', currentDir === 'desc' ? 'descending' : 'ascending');
       } else {
-        arrow.textContent = '';
+        if (arrow) arrow.textContent = '';
         link.dataset.nextDir = 'desc';
+        if (th) th.setAttribute('aria-sort', 'none');
       }
     });
   }
@@ -749,11 +758,11 @@
     });
   }
 
-  var prevBtn = document.getElementById('prevPage');
-  var nextBtn = document.getElementById('nextPage');
   function changePage(delta) {
     var p = document.getElementById('page_input');
-    var total = parseInt(document.getElementById('pagesTotal') ? document.getElementById('pagesTotal').textContent : '1', 10);
+    var totalEl = document.querySelector('.js-pages-total');
+    var total = parseInt(totalEl ? totalEl.textContent : '1', 10);
+    if (isNaN(total) || total < 1) total = 1;
     var cur = parseInt(p ? p.value : '1', 10);
     if (isNaN(cur) || cur < 1) cur = 1;
     var next = cur + delta;
@@ -762,7 +771,11 @@
     if (p) p.value = String(next);
     submitDebounced(10);
   }
-  if (prevBtn) prevBtn.addEventListener('click', function () { changePage(-1); });
-  if (nextBtn) nextBtn.addEventListener('click', function () { changePage(1); });
+  document.querySelectorAll('.js-prev').forEach(function (btn) {
+    btn.addEventListener('click', function () { changePage(-1); });
+  });
+  document.querySelectorAll('.js-next').forEach(function (btn) {
+    btn.addEventListener('click', function () { changePage(1); });
+  });
 </script>
 {% endblock %}

@@ -254,6 +254,27 @@
       align-items: center;
       flex-wrap: wrap;
     }
+    ul.messages {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 1.25rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    ul.messages .message {
+      padding: 0.65rem 0.9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface-muted);
+    }
+    ul.messages .message.success {
+      border-color: var(--success);
+      background: rgba(31, 157, 85, 0.12);
+    }
+    ul.messages .message.error {
+      border-color: #b91c1c;
+      background: rgba(185, 28, 28, 0.1);
+    }
     @media (max-width: 900px) {
       .site-header .nav-inner {
         flex-wrap: wrap;
@@ -298,6 +319,13 @@
   </header>
   <main class="page-body">
     <div class="container">
+      {% if messages %}
+      <ul class="messages" role="status" aria-live="polite">
+        {% for message in messages %}
+        <li class="message{% if message.tags %} {{ message.tags }}{% endif %}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
       {% block content %}{% endblock %}
     </div>
   </main>
@@ -315,11 +343,9 @@
       <p>
       © <span id="year"></span> Aaron Percival. All rights reserved.
       </p>
-      <script>
-        document.getElementById("year").textContent = new Date().getFullYear();
-      </script>
     </div>
   </footer>
+  <script src="{% static 'js/site.js' %}"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

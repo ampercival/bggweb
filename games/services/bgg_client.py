@@ -1,5 +1,4 @@
 import time
-import math
 import logging
 import os
 from typing import Dict, List, Tuple, Iterator
@@ -8,7 +7,6 @@ import csv
 import io
 import zipfile
 import requests
-from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
 
@@ -196,74 +194,6 @@ class BGGClient:
                 pass
         return results
 
-
-    def fetch_top_games_scrape(self, n: int, on_progress=None) -> Dict[str, Dict]:
-        page = 1
-        results: Dict[str, Dict] = {}
-        while len(results) < n:
-            url = (
-                f"https://boardgamegeek.com/search/boardgame/page/{page}?" +
-                "sort=rank&advsearch=1&" +
-                "q=&include%5Bdesignerid%5D=&include%5Bpublisherid%5D=&geekitemname=&" +
-                "range%5Byearpublished%5D%5Bmin%5D=&range%5Byearpublished%5D%5Bmax%5D=&" +
-                "range%5Bminage%5D%5Bmax%5D=&range%5Bnumvoters%5D%5Bmin%5D=50&" +
-                "range%5Bnumweights%5D%5Bmin%5D=&range%5Bminplayers%5D%5Bmax%5D=&" +
-                "range%5Bmaxplayers%5D%5Bmin%5D=&range%5Bleastplaytime%5D%5Bmin%5D=&" +
-                "range%5Bplaytime%5D%5Bmax%5D=&floatrange%5Bavgrating%5D%5Bmin%5D=&" +
-                "floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&" +
-                "floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=&searchuser=&playerrangetype=normal&B1=Submit&sortdir=asc"
-            )
-            resp = self._get(url, max_retries=8)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            table = soup.find('table', {'class': 'collection_table'})
-            if not table:
-                break
-            for row in table.find_all('tr', {'id': True}):
-                tds = row.find_all('td')
-                if len(tds) < 6:
-                    continue
-                anchor = tds[2].find('a')
-                if not anchor:
-                    continue
-                href = anchor.get('href', '')
-                title = anchor.get_text(strip=True)
-                # /boardgame/XXXX/name or /boardgameexpansion/XXXX/name
-                import re as _re
-                m = _re.search(r'/boardgame(?:expansion)?/(\d+)', href)
-                if not m:
-                    continue
-                gid = m.group(1)
-                gtype = 'Expansion' if 'boardgameexpansion' in href else 'Base Game'
-                try:
-                    avg = float(tds[4].get_text(strip=True))
-                except ValueError:
-                    avg = None
-                try:
-                    voters = int(tds[5].get_text(strip=True))
-                except ValueError:
-                    voters = None
-                if gid not in results:
-                    results[gid] = {
-                        'Game Title': title,
-                        'Type': gtype,
-                        'Game ID': gid,
-                        'Average Rating': avg,
-                        'Number of Voters': voters,
-                        'Weight': None,
-                        'Weight Votes': None,
-                        'Owned': 'Not Owned',
-                    }
-                if len(results) >= n:
-                    break
-            # progress callback after each page
-            if on_progress:
-                try:
-                    on_progress(progress=min(len(results), n), total=n)
-                except Exception:
-                    pass
-            self._sleep(1.0)
-            page += 1
-        return results
 
     # -------- Collection API (handles 202 queueing) --------
     def fetch_owned_collection(self, username: str, on_progress=None) -> Dict[str, Dict]:

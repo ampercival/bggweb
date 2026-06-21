@@ -14,9 +14,9 @@ A small Django web app that fetches BoardGameGeek (BGG) data (Top N list, option
 - Python 3.11+ (3.10+ likely fine)
 - Django >= 5.2
 - requests >= 2.31
-- beautifulsoup4 >= 4.12
+- whitenoise >= 6.6 (static files in production)
 
-See `requirements.txt` for exact versions.
+See `requirements.txt` for the full list.
 
 ## Quickstart
 1) Create and activate a virtual environment
@@ -43,8 +43,12 @@ python manage.py migrate
 ```
 
 4) Start the dev server
+
+`DJANGO_DEBUG` defaults to `False` (a safe production posture), so enable it for local development:
 ```
-python manage.py runserver
+# macOS/Linux
+DJANGO_DEBUG=True python manage.py runserver
+# or add DJANGO_DEBUG=True to a local .env file
 ```
 
 5) Open the app
@@ -75,6 +79,8 @@ No API keys are required. Defaults to a local SQLite database (`db.sqlite3`). Yo
 ## Development Tips
 - Don’t commit local DB/venv: `.gitignore` excludes `db.sqlite3`, `.venv/`, etc.
 - If you tweak polling or batch size, see `games/tasks.py` and `templates/job_detail.html`.
+- Run the tests with `python manage.py test games` (also run in CI via `.github/workflows/ci.yml`).
+- Before deploying, run `python manage.py collectstatic`; WhiteNoise serves the result.
 
 ## License
 This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0) License.

@@ -16,7 +16,9 @@ computed score so you can find which games play best at a given table size. Data
 - Datastore: **SQLite** by default (`db.sqlite3`), Postgres-capable via `DATABASE_URL`
 - Background work: **`django-background-tasks`** (a `process_tasks` worker — no Celery/Redis)
 - External data source: BGG XML API2 (`thing`, `collection`) + the BGG ranks **CSV data-dump ZIP**
-- Frontend: server-rendered Django templates with **inline CSS/JS** (no build step, no JS framework)
+- Frontend: server-rendered Django templates with mostly **inline CSS/JS** (no build step, no JS framework); shared helpers live in `static/js/site.js`
+- Static files served in production by **WhiteNoise** (`collectstatic` → compressed/hashed)
+- Tests: Django test runner under `games/tests/`; CI runs them via `.github/workflows/ci.yml`
 
 ## Repository Layout
 
@@ -41,29 +43,28 @@ bggweb/                     # repo root
 │   ├── urls.py             # app routes
 │   ├── admin.py            # Django admin registrations
 │   ├── apps.py             # enables SQLite WAL/synchronous pragmas on connect
-│   └── migrations/         # 0001–0005
+│   ├── migrations/         # 0001–0006
+│   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client)
 ├── templates/              # project-level templates (DIRS = BASE_DIR/templates)
-│   ├── base.html           # layout, shared inline CSS, nav
+│   ├── base.html           # layout, shared inline CSS, nav, messages, loads static/js/site.js
 │   ├── home.html           # landing page
 │   ├── refresh.html        # job-launch + user-management UI (superuser-gated)
 │   ├── job_detail.html     # live phase-progress UI (polls JSON)
 │   ├── games_list.html     # the main filterable/sortable table
 │   ├── game_detail.html    # single game + player-count breakdown
 │   └── partials/games_rows.html  # AJAX-rendered table rows
-├── check_mechanics.py      # one-off debug script (NOT a Django mgmt command)
-├── refresh_mechanics.py    # one-off debug script
-└── verify_mechanics.py     # one-off debug script
+├── static/                 # source static assets (collected into staticfiles/)
+│   └── js/site.js          # shared client helpers (local-time + footer year)
+└── .github/workflows/ci.yml  # runs check + migration check + tests
 ```
-
-> Note: `settings.py` lists `STATICFILES_DIRS = [BASE_DIR / 'static']`, but there is currently no
-> `static/` directory. All styling/JS is inline in templates. Don't assume a static-asset pipeline exists.
 
 ## Data Model (games/models.py)
 
 - **`Game`** — core record keyed by `bgg_id` (a `CharField`, unique). Holds title, `type`
-  (`Base Game` | `Expansion`), `year` (stored as a string!), `avg_rating`, `num_voters`, `weight`,
+  (`Base Game` | `Expansion`), `year` (nullable `IntegerField`), `avg_rating`, `num_voters`, `weight`,
   `weight_votes`, `bgg_rank`, and denormalized ownership: `owned` (bool) + `owned_by` (JSON list of
-  usernames). M2M to `Category`, `Family`, `Mechanic`.
+  usernames). M2M to `Category`, `Family`, `Mechanic`. Frequently filtered/sorted columns
+  (`type`, `year`, `avg_rating`, `weight`, `bgg_rank`, `owned`) are indexed.
 - **`Category` / `Family` / `Mechanic`** — simple `name`-unique vocab tables. "Families" are the eight
   pinned BGG top-level buckets (Strategy, Thematic, Abstract, Children's Game, Customizable, Family,
   Party Game, Wargame); categories and mechanics come straight from BGG links.
@@ -94,6 +95,9 @@ Cancellation: views set `status='cancelling'`; tasks poll via `check_cancel()` a
 The DB-sync helpers (`_sync_games`, `_sync_player_counts`, `_sync_ownership`, `_sync_catalog`,
 `_sync_refresh_chunk`) are written for **bulk efficiency** — `in_bulk`, `bulk_create`, `bulk_update`,
 `ignore_conflicts`, vocab pre-collection (`_collect_vocab`) to avoid N+1 queries. Preserve this style.
+Shared logic is factored into helpers reused by both sync paths: `_apply_relations` (M2M vocab),
+`_sync_player_counts` (poll rows), and `recompute_owned_flags` in `utils.py` (the single source of
+truth for the denormalized `Game.owned`/`owned_by` fields).
 
 ### BGG HTTP client (games/services/bgg_client.py)
 `BGGClient` is the only place that talks to BGG. It handles:
@@ -145,33 +149,53 @@ Common commands:
 python manage.py makemigrations games
 python manage.py migrate
 python manage.py createsuperuser    # needed to access /refresh/ and admin
+python manage.py collectstatic      # required before/at deploy (WhiteNoise serves these)
 python manage.py shell
+python manage.py test games          # run the test suite
 ```
+
+> **Local dev:** `DJANGO_DEBUG` now defaults to **`False`** (a safe production posture). Set
+> `DJANGO_DEBUG=True` in your shell or `.env` for development (better error pages, permissive
+> `ALLOWED_HOSTS`). With `DEBUG=False`, set `DJANGO_ALLOWED_HOSTS` and `DJANGO_SECRET_KEY`.
 
 ### Environment variables (read in settings.py / bgg_client.py)
 - `DATABASE_URL` — non-SQLite DB (via `dj-database-url`); defaults to local SQLite.
-- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG` (default `True`), `DJANGO_LOG_LEVEL` (default `INFO`).
+- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG` (default `False`), `DJANGO_LOG_LEVEL` (default `INFO`).
+- `DJANGO_ALLOWED_HOSTS` (comma-separated; defaults to localhost in DEBUG, empty otherwise).
 - `DJANGO_CSRF_TRUSTED_ORIGINS` (comma-separated), `RENDER_EXTERNAL_HOSTNAME` (auto host/CSRF on Render).
+- Security toggles applied when `DEBUG=False` (all sensible defaults): `DJANGO_SECURE_SSL_REDIRECT`,
+  `DJANGO_SESSION_COOKIE_SECURE`, `DJANGO_CSRF_COOKIE_SECURE`, `DJANGO_SECURE_HSTS_SECONDS`.
 - `BGG_API_TOKEN`, `BGG_THROTTLE_SEC`, `BGG_DETAILS_THROTTLE_SEC`.
 
 `.env` is supported (loaded via `python-dotenv`) and git-ignored.
 
+### Tests
+Tests live in `games/tests/` and cover the sync/upsert helpers (`test_sync.py`), scoring +
+filtering + the N+1 guard (`test_scoring.py`), the views incl. `clear_jobs` auth and full CSV
+export (`test_views.py`), and the BGG client parsing of the ranks ZIP / `thing` XML / collection
+XML (`test_bgg_client.py`). View tests use `@override_settings(SECURE_SSL_REDIRECT=False)` because
+the suite runs with `DEBUG=False`. Run with `python manage.py test games`.
+
 ## Conventions & Gotchas
 
-- **No test suite exists.** There are no `tests.py`/`pytest` files; CI is not configured. The
-  `*_mechanics.py` scripts at the repo root are ad-hoc debug scripts run as `python check_mechanics.py`
-  (they call `django.setup()` themselves) — they are not management commands and not maintained tests.
-  If you add tests, prefer Django's test runner under `games/tests/`.
-- **`Game.bgg_id` is a string, and `Game.year` is a string** — code defensively casts IDs to `str()`
-  throughout the sync helpers and casts year to int in SQL (`year_int`) for filtering/sorting.
+- **Tests live in `games/tests/`** and run via `python manage.py test games` (also in CI). Add new
+  tests there; keep the N+1 guard in `test_scoring.py` green.
+- **`Game.bgg_id` is a string** — code defensively casts IDs to `str()` throughout the sync helpers.
+  `Game.year` is now a nullable `IntegerField` (BGG year strings are converted via `_to_int` on
+  ingest; migration `0006` backfilled existing data and dropped non-numeric values to `NULL`).
 - **A refresh prunes.** `run_fetch_top_n` and `run_refresh` delete games not in the fetched set. The
   ranks ZIP link **expires** — failures there usually mean a stale data-dump URL, not a code bug.
 - **Always run the worker.** Jobs created in the DB stay `pending` until `process_tasks` is running.
-- **Keep the four parallel write paths consistent.** `_sync_catalog` (used by top_n/collection) and
-  `_sync_refresh_chunk` (used by refresh) implement similar logic; a fix in one usually belongs in both.
+- **Two sync paths still exist:** `_sync_catalog` (top_n/collection) and `_sync_refresh_chunk`
+  (refresh). They now share `_apply_relations` / `_sync_player_counts`, but the orchestration differs;
+  a behavioral fix may still belong in both — `test_sync.py` exercises each.
 - **SQLite is in WAL mode** (set in `games/apps.py`) for better job/web concurrency.
-- **Permissions:** `/refresh/`, `cancel_job`, and user add/delete are `@user_passes_test(is_superuser)`.
-- Styling and JS are inline in templates; there's no asset build, no Node, no CSS framework.
+- **Permissions:** `/refresh/`, `cancel_job`, `clear_jobs`, and user add/delete are all
+  `@user_passes_test(is_superuser)`.
+- **CSV export** (`export_csv`) streams the **full filtered result set** (not the current page) via
+  `StreamingHttpResponse`; its columns must stay in sync with `games_list`/`games_rows` (25 columns).
+- Most page styling/JS is inline in templates; shared client helpers live in `static/js/site.js`.
+  There's no asset build, no Node, no CSS framework — WhiteNoise + `collectstatic` handle static files.
 - License: **CC BY-NC 4.0** (see `LICENSE`).
 
 ## Git / Contribution Notes

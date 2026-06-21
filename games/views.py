@@ -1,29 +1,11 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse, HttpResponse
-from django.urls import reverse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from django.core.paginator import Paginator
-from django.db.models import (
-    Case,
-    Count,
-    ExpressionWrapper,
-    F,
-    FloatField,
-    IntegerField,
-    Max,
-    Min,
-    OrderBy,
-    Q,
-    Value,
-    When,
-)
-from django.db.models.functions import Cast, Coalesce
-from urllib.parse import urlencode
 from django.template.loader import render_to_string
-from datetime import datetime
-from django.utils import timezone
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Game, PlayerCountRecommendation, FetchJob, BGGUser, Collection, OwnedGame
+from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh
+from .utils import GameFilter, serialize_game_row, recompute_owned_flags
 import csv
 
 
@@ -37,34 +19,6 @@ def home(request):
         'last_refresh': last_refresh,
         'tracked_users': tracked_users,
     })
-
-def _refresh_owned_flags(game_ids):
-    unique_ids = {gid for gid in (game_ids or []) if gid}
-    if not unique_ids:
-        return
-    remaining = OwnedGame.objects.filter(game_id__in=unique_ids).select_related(
-        "collection", "game"
-    )
-    owners_by_game = {}
-    for owned in remaining:
-        if not owned.game_id or not owned.collection_id:
-            continue
-        owners_by_game.setdefault(owned.game_id, set()).add(owned.collection.username)
-    games = Game.objects.filter(id__in=unique_ids)
-    updates = []
-    now = timezone.now()
-    for game in games:
-        owners = sorted(owners_by_game.get(game.id, []))
-        if game.owned != bool(owners) or list(game.owned_by or []) != owners:
-            game.owned = bool(owners)
-            game.owned_by = owners
-            game.updated_at = now
-            updates.append(game)
-    if updates:
-        Game.objects.bulk_update(updates, ["owned", "owned_by", "updated_at"])
-
-
-
 
 
 @login_required
@@ -88,7 +42,7 @@ def refresh(request):
                     OwnedGame.objects.filter(collection=collection).delete()
                     collection.delete()
                 BGGUser.objects.filter(username=username).delete()
-                _refresh_owned_flags(game_ids)
+                recompute_owned_flags(game_ids)
             return redirect('refresh')
         if action == 'top_n':
             try:
@@ -173,6 +127,7 @@ def cancel_job(request, job_id: int):
     return redirect('job_detail', job_id=job.id)
 
 
+@user_passes_test(lambda u: u.is_superuser)
 def clear_jobs(request):
     if request.method != 'POST':
         return HttpResponse(status=405)
@@ -181,8 +136,6 @@ def clear_jobs(request):
 
 
 def _compute_rows_context(request):
-    from .utils import GameFilter, serialize_game_row  # Import inside to avoid circular deps if any
-
     game_filter = GameFilter(request.GET)
     qs, qs_pre_category, pc_range, pc_min = game_filter.get_queryset()
     
@@ -228,13 +181,7 @@ def _compute_rows_context(request):
     other_names = sorted(cat_counts.keys(), key=lambda x: x.lower())
     other_cat_pairs = [(name, cat_counts.get(name, 0)) for name in other_names]
 
-    mechanic_names = sorted(mec_counts.keys(), key=lambda x: x.lower())
-    # We can just show all mechanics for now, maybe top 20? 
-    # Or mimic structure: top 30?
-    # Let's split into "Top" (by count) and "Rest"?
-    # For now, let's just sort by count desc for top list? 
-    # Users requested collapsible.
-    
+    # Mechanics: show the most common as a pinned "top" list, the rest collapsed.
     sorted_mechanics = sorted(mec_counts.items(), key=lambda x: (-x[1], x[0]))
     top_n_mechanics = 20
     top_mech_pairs = sorted_mechanics[:top_n_mechanics]
@@ -360,52 +307,74 @@ def games_rows(request):
 
 
 def game_detail(request, bgg_id: str):
-    game = get_object_or_404(Game.objects.prefetch_related('categories', 'families'), bgg_id=bgg_id)
+    game = get_object_or_404(
+        Game.objects.prefetch_related('categories', 'families', 'mechanics'),
+        bgg_id=bgg_id,
+    )
     pcs = game.player_counts.order_by('count')
     return render(request, 'game_detail.html', {'game': game, 'player_counts': pcs})
 
 
+CSV_HEADER = [
+    'Score Factor', 'Game Title', 'Game ID', 'Year', 'BGG Rank', 'Average Rating', 'Number of Voters',
+    'Weight', 'Weight Votes', 'Owned', 'Owners', 'Type', 'Categories', 'Mechanics', 'Player Count',
+    'Best %', 'Best Votes', 'Rec. %', 'Rec. Votes', 'Not %', 'Not Votes', 'Total Votes',
+    'Player Count Score (unadjusted)', 'Player Count Score', 'Playable',
+]
+
+
+def _csv_row(r):
+    return [
+        r.get('score_factor'),
+        r.get('title'),
+        r.get('game_id'),
+        r.get('year') if r.get('year') is not None else 'N/A',
+        r.get('bgg_rank') if r.get('bgg_rank') is not None else 'N/A',
+        r.get('avg_rating'),
+        r.get('num_voters'),
+        r.get('weight') if r.get('weight') is not None else 'N/A',
+        r.get('weight_votes') if r.get('weight_votes') is not None else 'N/A',
+        'Owned' if r.get('owned') else 'Not Owned',
+        r.get('owned_by_str'),
+        r.get('type'),
+        r.get('categories_str'),
+        r.get('mechanics_str'),
+        r.get('player_count'),
+        r.get('best_pct'),
+        r.get('best_votes'),
+        r.get('rec_pct'),
+        r.get('rec_votes'),
+        r.get('not_pct'),
+        r.get('not_votes'),
+        r.get('total_votes'),
+        r.get('pc_score_unadj'),
+        r.get('pc_score'),
+        r.get('playable'),
+    ]
+
+
+class _Echo:
+    """A file-like object that returns whatever is written, for streaming CSV."""
+
+    def write(self, value):
+        return value
+
+
 def export_csv(request):
-    # Export current filtered rows with the same columns as the table
-    context = _compute_rows_context(request)
-    rows = context['rows']
-    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    """Stream the full filtered result set (not just the current page) as CSV,
+    using the same columns as the table."""
+    game_filter = GameFilter(request.GET)
+    qs, _qs_pre_category, pc_range, pc_min = game_filter.get_queryset()
+
+    writer = csv.writer(_Echo())
+
+    def rows():
+        yield writer.writerow(CSV_HEADER)
+        for rec in qs.iterator(chunk_size=2000):
+            yield writer.writerow(_csv_row(serialize_game_row(rec, pc_range, pc_min)))
+
+    response = StreamingHttpResponse(rows(), content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename="player_count_data.csv"'
-    writer = csv.writer(response)
-    writer.writerow([
-        'Score Factor','Game Title','Game ID','Year','BGG Rank','Average Rating','Number of Voters',
-        'Weight','Weight Votes','Owned','Owners','Type','Categories','Mechanics','Player Count','Best %','Best Votes',
-        'Rec. %','Rec. Votes','Not %','Not Votes','Total Votes',
-        'Player Count Score (unadjusted)','Player Count Score','Playable'
-    ])
-    for r in rows:
-        writer.writerow([
-            r.get('score_factor'),
-            r.get('title'),
-            r.get('game_id'),
-            r.get('year') or 'N/A',
-            r.get('bgg_rank') if r.get('bgg_rank') is not None else 'N/A',
-            r.get('avg_rating'),
-            r.get('num_voters'),
-            r.get('weight') if r.get('weight') is not None else 'N/A',
-            r.get('weight_votes') if r.get('weight_votes') is not None else 'N/A',
-            'Owned' if r.get('owned') else 'Not Owned',
-            r.get('owned_by_str'),
-            r.get('type'),
-            r.get('categories_str'),
-            r.get('mechanics_str'),
-            r.get('player_count'),
-            r.get('best_pct'),
-            r.get('best_votes'),
-            r.get('rec_pct'),
-            r.get('rec_votes'),
-            r.get('not_pct'),
-            r.get('not_votes'),
-            r.get('total_votes'),
-            r.get('pc_score_unadj'),
-            r.get('pc_score'),
-            r.get('playable'),
-        ])
     return response
 
 
