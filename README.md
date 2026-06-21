@@ -44,15 +44,17 @@ python manage.py migrate
 
 4) Start the dev server
 
-`DJANGO_DEBUG` defaults to `False` (a safe production posture), so enable it for local development:
+`DJANGO_DEBUG` defaults to `False` (a safe production posture), so enable it for local development.
+The `honcho`/`start_dev.ps1` dev flow serves on port **8001** (see `Procfile.dev`); a bare
+`runserver` still uses Django's default 8000 unless you pass a port:
 ```
 # macOS/Linux
-DJANGO_DEBUG=True python manage.py runserver
+DJANGO_DEBUG=True python manage.py runserver 0.0.0.0:8001
 # or add DJANGO_DEBUG=True to a local .env file
 ```
 
 5) Open the app
-- Navigate to http://127.0.0.1:8000/
+- Navigate to http://127.0.0.1:8001/ (honcho/start_dev) or http://127.0.0.1:8000/ (bare runserver)
 - From Home, start a job:
   - Top N: fetches the current Top N games
   - Collection: fetches a user’s owned collection
