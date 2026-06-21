@@ -18,9 +18,21 @@ def _make_game(gid, gtype="Base Game", best_pct=100.0):
     return g
 
 
-# Tests run with DEBUG=False, which enables SECURE_SSL_REDIRECT (301 to https);
-# disable it so the test client can exercise the views over plain HTTP.
-@override_settings(SECURE_SSL_REDIRECT=False)
+# Test-environment overrides applied to view tests:
+#  - SECURE_SSL_REDIRECT is False: the suite runs with DEBUG=False, which would
+#    otherwise 301-redirect the test client to https.
+#  - Plain (non-manifest) static storage: the production WhiteNoise manifest
+#    backend requires `collectstatic` to have run; tests should not depend on it.
+VIEW_TEST_SETTINGS = dict(
+    SECURE_SSL_REDIRECT=False,
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    },
+)
+
+
+@override_settings(**VIEW_TEST_SETTINGS)
 class ClearJobsAuthTests(TestCase):
     def setUp(self):
         self.job = FetchJob.objects.create(kind="refresh", status="done")
@@ -39,7 +51,7 @@ class ClearJobsAuthTests(TestCase):
         self.assertFalse(FetchJob.objects.exists())
 
 
-@override_settings(SECURE_SSL_REDIRECT=False)
+@override_settings(**VIEW_TEST_SETTINGS)
 class ExportCsvTests(TestCase):
     def setUp(self):
         _make_game("1")
@@ -72,7 +84,7 @@ class ExportCsvTests(TestCase):
         self.assertEqual(data[0][2], "3")
 
 
-@override_settings(SECURE_SSL_REDIRECT=False)
+@override_settings(**VIEW_TEST_SETTINGS)
 class GamesTableColumnTests(TestCase):
     def setUp(self):
         _make_game("1")
@@ -98,7 +110,7 @@ class GamesTableColumnTests(TestCase):
         self.assertEqual(body_count, 25)
 
 
-@override_settings(SECURE_SSL_REDIRECT=False)
+@override_settings(**VIEW_TEST_SETTINGS)
 class GameDetailTests(TestCase):
     def test_game_detail_renders(self):
         _make_game("42")
@@ -111,7 +123,7 @@ class GameDetailTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
-@override_settings(SECURE_SSL_REDIRECT=False)
+@override_settings(**VIEW_TEST_SETTINGS)
 class GamesRowsPaginationTests(TestCase):
     def test_rows_endpoint_reports_counts(self):
         for gid in range(1, 6):

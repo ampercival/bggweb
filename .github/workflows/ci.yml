@@ -31,5 +31,8 @@ jobs:
       - name: Verify migrations are up to date
         run: python manage.py makemigrations games --check --dry-run
 
+      - name: Collect static files (validates the static pipeline)
+        run: python manage.py collectstatic --noinput
+
       - name: Run tests
         run: python manage.py test games --verbosity=2
