@@ -1,3 +1,18 @@
+# One-command local dev launcher: sets up the environment and starts BOTH the
+# web server and the background worker. Just run:  .\start_dev.ps1
+#
+# (If PowerShell blocks the script with "running scripts is disabled", run this
+# once in the same window first:  Set-ExecutionPolicy -Scope Process -Bypass)
+
+# Stop on the first error so we don't try to start the server after a failed
+# install/migrate.
+$ErrorActionPreference = "Stop"
+
+# Run from the repo root regardless of where the script was invoked from.
+Set-Location -Path $PSScriptRoot
+
+$DevUrl = "http://127.0.0.1:8001/"
+
 # Check if .venv exists, if not create it
 if (-not (Test-Path ".venv")) {
     Write-Host "Creating virtual environment..."
@@ -8,9 +23,9 @@ if (-not (Test-Path ".venv")) {
 Write-Host "Activating virtual environment..."
 .\.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# Install dependencies (quiet: only show problems, not the full satisfied list)
 Write-Host "Installing dependencies..."
-pip install -r requirements.txt
+pip install --quiet --disable-pip-version-check -r requirements.txt
 
 # Run migrations
 Write-Host "Running migrations..."
@@ -20,6 +35,16 @@ python manage.py migrate
 # app is production-safe; turn it on here so local runs work out of the box).
 $env:DJANGO_DEBUG = "True"
 
-# Start Honcho (runs both web and worker from Procfile.dev)
+# Open the browser shortly after the server has had time to start. Honcho runs
+# in the foreground below, so do this from a background job.
+Start-Job -ScriptBlock {
+    param($u)
+    Start-Sleep -Seconds 4
+    Start-Process $u
+} -ArgumentList $DevUrl | Out-Null
+
+# Start Honcho (runs both web and worker from Procfile.dev). This blocks until
+# you press Ctrl+C, which stops both processes.
 Write-Host "Starting web server and background worker via Honcho..."
+Write-Host "App will open at $DevUrl  (press Ctrl+C to stop everything)"
 honcho start -f Procfile.dev
