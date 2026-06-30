@@ -1,2 +1,2 @@
-web: python manage.py runserver 0.0.0.0:8001
-worker: python manage.py process_tasks
+web: python -u manage.py runserver 0.0.0.0:8001 --noreload
+worker: python -u manage.py process_tasks
