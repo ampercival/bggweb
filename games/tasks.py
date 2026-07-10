@@ -13,11 +13,17 @@ from .models import (
     Mechanic,
     OwnedGame,
     PlayerCountRecommendation,
+    RTTGame,
 )
 from .services.bgg_client import BGGClient
+from .services.rtt_client import RTTClient
 from .utils import recompute_owned_flags
 
 log = logging.getLogger(__name__)
+
+# The Rally the Troops availability tag is modelled as a pseudo-collection with
+# this username, so it behaves exactly like a tracked BGG owner in the UI.
+RTT_OWNER_LABEL = "Rally the Troops"
 
 
 class JobCancelled(Exception):
@@ -395,10 +401,10 @@ def _sync_catalog(
 
 def _purge_untracked_collections(active_usernames):
     normalized = {(u or '').strip() for u in (active_usernames or []) if (u or '').strip()}
-    if normalized:
-        purge_qs = Collection.objects.exclude(username__in=normalized)
-    else:
-        purge_qs = Collection.objects.all()
+    # Never purge the Rally the Troops pseudo-collection: it is not a tracked BGG
+    # user but must survive refreshes (its membership comes from RTTGame).
+    normalized.add(RTT_OWNER_LABEL)
+    purge_qs = Collection.objects.exclude(username__in=normalized)
     if not purge_qs.exists():
         return
     collection_ids = list(purge_qs.values_list('id', flat=True))
@@ -412,6 +418,47 @@ def _purge_untracked_collections(active_usernames):
     if not affected_game_ids:
         return
     recompute_owned_flags(affected_game_ids)
+
+
+def sync_rtt_collection():
+    """Project the ``RTTGame`` source-of-truth table onto the catalog.
+
+    Ensures the ``RTT_OWNER_LABEL`` collection owns exactly the catalog games
+    whose ``bgg_id`` appears in ``RTTGame``, then refreshes the denormalized
+    ``owned`` / ``owned_by`` flags via :func:`recompute_owned_flags`. This is the
+    single point that turns scraped RTT ids into the owner-style tag; it is
+    idempotent and safe to call at the end of any data job (that is what
+    implements the "tag later" behaviour for games newly pulled into the
+    catalog).
+    """
+    coll, _ = Collection.objects.get_or_create(username=RTT_OWNER_LABEL)
+    rtt_ids = set(RTTGame.objects.values_list("bgg_id", flat=True))
+    desired_games = (
+        list(Game.objects.filter(bgg_id__in=rtt_ids)) if rtt_ids else []
+    )
+    desired_pks = {game.pk for game in desired_games}
+
+    existing_by_game = {}
+    for og_id, game_id in OwnedGame.objects.filter(collection=coll).values_list("id", "game_id"):
+        existing_by_game.setdefault(game_id, og_id)
+
+    affected_pks = desired_pks | set(existing_by_game.keys())
+
+    to_create = [
+        OwnedGame(collection=coll, game=game)
+        for game in desired_games
+        if game.pk not in existing_by_game
+    ]
+    to_delete = [
+        og_id for game_id, og_id in existing_by_game.items() if game_id not in desired_pks
+    ]
+
+    if to_create:
+        OwnedGame.objects.bulk_create(to_create, ignore_conflicts=True)
+    if to_delete:
+        OwnedGame.objects.filter(id__in=to_delete).delete()
+
+    recompute_owned_flags(affected_pks)
 
 
 
@@ -622,6 +669,8 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for Top N', job.id)
 
+        sync_rtt_collection()
+
         job.status = "done"
         job.finished_at = timezone.now()
         job.progress = job.total
@@ -677,6 +726,8 @@ def run_fetch_collection(job_id: int, username: str):
         collection_map = {username: set(ids)}
         _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for collection job', job.id)
+
+        sync_rtt_collection()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -999,6 +1050,9 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             job.params = params_local
             job.save(update_fields=["params"])
 
+        # Re-tag Rally the Troops games now that the catalog has been rebuilt.
+        sync_rtt_collection()
+
         job.status = "done"
         job.finished_at = timezone.now()
         job.progress = job.total
@@ -1015,6 +1069,85 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         job.save(update_fields=["status", "finished_at"])
     except Exception as e:
         log.exception('Job %s: refresh job failed', job.id)
+        job.status = "error"
+        job.error = str(e) or 'Unknown error'
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "error", "finished_at"])
+
+
+@background(schedule=0)
+def run_scrape_rtt(job_id: int):
+    job = FetchJob.objects.get(id=job_id)
+    job.status = "running"
+    job.progress = 0
+    job.total = 0
+    job.save(update_fields=["status", "progress", "total"])
+    log.info('Job %s: starting Rally the Troops scrape', job.id)
+
+    def check_cancel():
+        job.refresh_from_db(fields=['status'])
+        if job.status == 'cancelling':
+            raise JobCancelled()
+
+    last_save = 0.0
+
+    def on_progress(**kw):
+        nonlocal last_save
+        if "total" in kw:
+            job.total = kw["total"]
+        if "progress" in kw:
+            job.progress = kw["progress"]
+        now_ts = time.time()
+        if now_ts - last_save >= 0.5:
+            job.save(update_fields=["progress", "total"])
+            last_save = now_ts
+
+    client = RTTClient()
+    try:
+        check_cancel()
+        games = client.fetch_games(on_progress=on_progress, check_cancelled=check_cancel)
+        check_cancel()
+        log.info('Job %s: scraped %s Rally the Troops games with BGG ids', job.id, len(games))
+
+        # De-duplicate by BGG id (two RTT slugs can map to the same BGG game).
+        by_id = {}
+        for g in games:
+            by_id.setdefault(str(g["bgg_id"]), g)
+        scraped_ids = set(by_id.keys())
+
+        existing = RTTGame.objects.in_bulk(field_name="bgg_id")
+        to_create = []
+        to_update = []
+        for bid, g in by_id.items():
+            row = existing.get(bid)
+            if row:
+                row.slug = g["slug"]
+                row.title = g["title"]
+                to_update.append(row)
+            else:
+                to_create.append(RTTGame(bgg_id=bid, slug=g["slug"], title=g["title"]))
+        if to_create:
+            RTTGame.objects.bulk_create(to_create, ignore_conflicts=True)
+        if to_update:
+            RTTGame.objects.bulk_update(to_update, ["slug", "title"], batch_size=500)
+        # Drop games no longer on Rally the Troops.
+        RTTGame.objects.exclude(bgg_id__in=scraped_ids).delete()
+
+        sync_rtt_collection()
+
+        job.total = len(scraped_ids)
+        job.progress = len(scraped_ids)
+        job.status = "done"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at", "progress", "total"])
+        log.info('Job %s: Rally the Troops scrape finished (%s games)', job.id, len(scraped_ids))
+    except JobCancelled:
+        log.info('Job %s: Rally the Troops scrape cancelled', job.id)
+        job.status = "cancelled"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
+    except Exception as e:
+        log.exception('Job %s: Rally the Troops scrape failed', job.id)
         job.status = "error"
         job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()

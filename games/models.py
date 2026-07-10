@@ -74,6 +74,28 @@ class PlayerCountRecommendation(models.Model):
         return f"{self.game.title} - {self.count}p"
 
 
+class RTTGame(models.Model):
+    """A game available to play on Rally the Troops (rally-the-troops.com).
+
+    Source of truth for the "Rally the Troops" availability tag, keyed by the
+    game's BGG id so it can be matched to :class:`Game`. Kept separate from the
+    catalog so a scraped game is remembered even when it is not currently in the
+    catalog (outside the Top N and unowned); it gets tagged if/when a later
+    refresh pulls that game in. ``Game.bgg_id`` is a string, so ``bgg_id`` here
+    is a string too.
+    """
+    bgg_id = models.CharField(max_length=20, unique=True)
+    slug = models.CharField(max_length=200, blank=True)
+    title = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title']
+
+    def __str__(self):
+        return f"RTTGame({self.title or self.slug} / {self.bgg_id})"
+
+
 class Collection(models.Model):
     username = models.CharField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -93,6 +115,7 @@ class FetchJob(models.Model):
         ('top_n', 'Top N'),
         ('collection', 'Collection'),
         ('refresh', 'Refresh'),
+        ('rtt', 'Rally the Troops'),
     ]
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     params = models.JSONField(default=dict)

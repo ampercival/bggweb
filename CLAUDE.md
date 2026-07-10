@@ -33,18 +33,20 @@ bggweb/                     # repo root
 │   ├── settings.py         # env-driven config; SQLite default; logging; WAL pragmas
 │   └── urls.py             # admin/ + includes games.urls at root
 ├── games/                  # the ONLY app — all domain logic lives here
-│   ├── models.py           # Game, Category, Family, Mechanic, BGGUser,
+│   ├── models.py           # Game, Category, Family, Mechanic, BGGUser, RTTGame,
 │   │                       #   PlayerCountRecommendation, Collection, OwnedGame, FetchJob
 │   ├── views.py            # page + AJAX views; orchestrates jobs and the games table
 │   ├── utils.py            # GameFilter (query building) + serialize_game_row (scoring)
 │   ├── tasks.py            # @background jobs + DB sync helpers (the heavy lifting)
 │   ├── services/
-│   │   └── bgg_client.py   # BGGClient: all HTTP to BGG, throttling, retries, XML/CSV parsing
+│   │   ├── bgg_client.py   # BGGClient: all HTTP to BGG, throttling, retries, XML/CSV parsing
+│   │   └── rtt_client.py   # RTTClient: scrapes rally-the-troops.com library → BGG ids
 │   ├── urls.py             # app routes
 │   ├── admin.py            # Django admin registrations
 │   ├── apps.py             # enables SQLite WAL/synchronous pragmas on connect
-│   ├── migrations/         # 0001–0006
-│   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client)
+│   ├── migrations/         # 0001–0007
+│   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client,
+│                           #   test_rtt_client, test_rtt_sync)
 ├── templates/              # project-level templates (DIRS = BASE_DIR/templates)
 │   ├── base.html           # layout, shared inline CSS, nav, messages, loads static/js/site.js
 │   ├── home.html           # landing page
@@ -72,9 +74,17 @@ bggweb/                     # repo root
   (best/rec/notrec pct + votes, total votes). This is the table the games list iterates over.
 - **`BGGUser`** — a tracked BGG username (drives which collections a refresh pulls).
 - **`Collection` / `OwnedGame`** — a user's owned games (M2M through table). Ownership is also
-  denormalized onto `Game.owned`/`Game.owned_by` for fast filtering/display.
-- **`FetchJob`** — tracks a background job: `kind` (`top_n`|`collection`|`refresh`), `params` (JSON,
-  includes per-phase progress under `params["phases"]`), `status`, `progress`/`total`, `error`.
+  denormalized onto `Game.owned`/`Game.owned_by` for fast filtering/display. The **"Rally the Troops"
+  availability tag reuses this**: it is a pseudo-`Collection` named `"Rally the Troops"` (see
+  `RTT_OWNER_LABEL` in `tasks.py`) so it shows up in the owner filter cloud / Owners column exactly
+  like a tracked BGG owner — no dedicated games-table column.
+- **`RTTGame`** — source of truth for Rally the Troops availability (`bgg_id`, `slug`, `title`),
+  populated by scraping [rally-the-troops.com](https://www.rally-the-troops.com/games/library). Kept
+  separate from the catalog so a scraped game is remembered even when it is not currently in the
+  catalog, and tagged if/when a later refresh pulls it in. `tasks.sync_rtt_collection()` projects
+  `RTTGame ∩ catalog` onto the "Rally the Troops" collection's `OwnedGame` rows.
+- **`FetchJob`** — tracks a background job: `kind` (`top_n`|`collection`|`refresh`|`rtt`), `params`
+  (JSON, includes per-phase progress under `params["phases"]`), `status`, `progress`/`total`, `error`.
 
 ## Key Workflows
 
@@ -89,6 +99,14 @@ Three `@background(schedule=0)` task functions, each kicked off from `views.refr
    user's collection → streamed batched details (`_sync_refresh_chunk` per chunk) → prune untracked.
    Maintains the four-phase progress object (`top_n`, `collection`, `details`, `cleanup`) in
    `job.params["phases"]`, throttling DB writes (`save_throttled`, ~0.5s).
+
+A fourth job, **`run_scrape_rtt(job_id)`** (`kind='rtt'`), scrapes the Rally the Troops library via
+`services/rtt_client.RTTClient` (the only place that talks to rally-the-troops.com; throttled, polite
+User-Agent, `RTT_THROTTLE_SEC` env). It upserts/prunes `RTTGame` rows, then calls
+`sync_rtt_collection()`. That reconcile helper is **also called at the end of `run_refresh`,
+`run_fetch_top_n`, and `run_fetch_collection`** so the tag survives the pruning refreshes, and
+`_purge_untracked_collections` protects the `"Rally the Troops"` collection from deletion. Launched
+from the "Scrape Rally the Troops" button on `/refresh/` (POST `action=rtt`).
 
 Cancellation: views set `status='cancelling'`; tasks poll via `check_cancel()` and raise `JobCancelled`.
 

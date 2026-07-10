@@ -218,6 +218,18 @@
       </form>
     </div>
   </section>
+
+  <section class="card refresh-card" aria-labelledby="rtt-scrape">
+    <h3 id="rtt-scrape">Rally the Troops</h3>
+    <p class="note">Scrape the <a href="https://www.rally-the-troops.com/games/library" target="_blank" rel="noopener">Rally the Troops library</a>, match each game to its BoardGameGeek id, and tag those games with the <strong>Rally the Troops</strong> owner so you can filter to games playable on that platform. Re-run this any time to refresh the list.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="rtt">
+      <div class="form-actions">
+        <button type="submit" class="button secondary">Scrape Rally the Troops</button>
+      </div>
+    </form>
+  </section>
 </div>
 
 <section class="page-section">

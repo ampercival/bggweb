@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 from django.contrib.auth.decorators import login_required, user_passes_test
 from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
-from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh
+from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh, run_scrape_rtt
 from .utils import GameFilter, serialize_game_row, recompute_owned_flags
 import csv
 
@@ -73,6 +73,10 @@ def refresh(request):
             params['usernames'] = saved_users
             job = FetchJob.objects.create(kind='refresh', params=params, status='pending', total=n)
             run_refresh(job.id, n, saved_users, 20, zip_url or None)
+            return redirect('job_detail', job_id=job.id)
+        if action == 'rtt':
+            job = FetchJob.objects.create(kind='rtt', params={}, status='pending', total=0)
+            run_scrape_rtt(job.id)
             return redirect('job_detail', job_id=job.id)
     latest_jobs = FetchJob.objects.order_by('-created_at')[:10]
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()

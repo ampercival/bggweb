@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Game, PlayerCountRecommendation, Collection, OwnedGame, FetchJob, Category
+from .models import Game, PlayerCountRecommendation, Collection, OwnedGame, FetchJob, Category, RTTGame
 
 
 @admin.register(Game)
@@ -34,3 +34,9 @@ class FetchJobAdmin(admin.ModelAdmin):
 class CategoryAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     list_display = ("name",)
+
+
+@admin.register(RTTGame)
+class RTTGameAdmin(admin.ModelAdmin):
+    list_display = ("bgg_id", "title", "slug", "updated_at")
+    search_fields = ("title", "bgg_id", "slug")
