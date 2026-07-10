@@ -119,19 +119,9 @@ def _sync_games(desired_ids, games_map, details_map, now):
         weight = _to_float(detail.get("Weight"))
         weight_votes = _to_int(detail.get("Weight Votes"))
         bgg_rank = _to_int(detail.get("BGG Rank"))
-        
-        # Determine ownership just for the Game.owned flag (optimization/denormalization)
-        # Note: Actual ownership relations are handled in _sync_ownership
-        # We need owners_input_by_gid here or we can skip it and let _sync_ownership update it?
-        # The original code did it here. Let's pass it in or update it later.
-        # To keep functions focused, let's defer the "owned" flag update to _sync_ownership 
-        # OR return the games and let the caller handle it. 
-        # Actually, best to handle the basic fields here. 
-        # We'll default owned to False/Empty here if we don't have the context, 
-        # or we accept an `owners_lookup` argument.
-        
-        # Let's pass owners_lookup equivalent.
-        
+
+        # New games are created with owned=False; the denormalized owned /
+        # owned_by fields are set later by _sync_ownership from the OwnedGame rows.
         if gid in existing_games:
             game = existing_games[gid]
             game.title = info.get("Game Title") or game.title
@@ -335,7 +325,8 @@ def _sync_catalog(
     # Normalize collections
     normalized_collections = {}
     for username, ids in collection_owned_map.items():
-        if not username: continue
+        if not username:
+            continue
         normalized_collections[username] = {str(gid) for gid in ids if gid}
     collection_owned_map = normalized_collections
 
@@ -357,11 +348,13 @@ def _sync_catalog(
         player_units = len(player_counts) or games_units
         owned_units = sum(len(ids) for ids in collection_owned_map.values())
         total_units = prune_units + games_units + relations_units + player_units + owned_units
-        if total_units <= 0: total_units = 1
+        if total_units <= 0:
+            total_units = 1
 
     def report_units(add_units):
         nonlocal completed_units, last_progress
-        if add_units <= 0: return
+        if add_units <= 0:
+            return
         completed_units += add_units
         if check_cancelled:
             check_cancelled()

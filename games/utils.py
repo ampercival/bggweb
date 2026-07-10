@@ -76,7 +76,10 @@ class GameFilter:
             )
         )
         
-        qs_for_norm = qs  # Keep reference for aggregation later
+        # Normalization baseline: the min/max used to scale pc_score is taken
+        # across ALL player-count rows (before user filters are applied), so the
+        # 0-10 scale stays stable no matter how the results are filtered.
+        qs_for_norm = qs
 
         # Filtering
         q = self.params.get('q', '')
@@ -202,17 +205,20 @@ class GameFilter:
         mec_counts = {}
         
         for row in qs.values('game__categories__name').exclude(game__categories__name__isnull=True).annotate(count=Count('id')):
-           name = row['game__categories__name']
-           if name: cat_counts[name] = row['count']
-           
+            name = row['game__categories__name']
+            if name:
+                cat_counts[name] = row['count']
+
         for row in qs.values('game__families__name').exclude(game__families__name__isnull=True).annotate(count=Count('id')):
-           name = row['game__families__name']
-           if name: fam_counts[name] = row['count']
+            name = row['game__families__name']
+            if name:
+                fam_counts[name] = row['count']
 
         for row in qs.values('game__mechanics__name').exclude(game__mechanics__name__isnull=True).annotate(count=Count('id')):
-           name = row['game__mechanics__name']
-           if name: mec_counts[name] = row['count']
-           
+            name = row['game__mechanics__name']
+            if name:
+                mec_counts[name] = row['count']
+
         return cat_counts, fam_counts, mec_counts
 
     def _get_list(self, key):

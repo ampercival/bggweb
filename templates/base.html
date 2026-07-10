@@ -84,6 +84,16 @@
       background: var(--surface-muted);
       color: var(--primary-dark);
     }
+    .logout-form {
+      width: auto;
+      margin: 0;
+    }
+    .logout-button {
+      font: inherit;
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
     .primary-action {
       background: var(--primary);
       color: #fff;
@@ -311,7 +321,10 @@
       <div class="auth-meta">
         {% if request.user.is_authenticated %}
           <span class="user-chip">{{ request.user.get_short_name|default:request.user.username }}</span>
-          <a href="{% url 'admin:logout' %}?next={{ request.get_full_path }}" class="nav-link">Sign out</a>
+          <form method="post" action="{% url 'logout' %}" class="logout-form">
+            {% csrf_token %}
+            <button type="submit" class="nav-link logout-button">Sign out</button>
+          </form>
         {% else %}
           <a href="{% url 'admin:login' %}?next={{ request.get_full_path }}" class="nav-link">Sign in</a>
         {% endif %}

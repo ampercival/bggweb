@@ -14,6 +14,7 @@ env.bak/
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # Django
 db.sqlite3

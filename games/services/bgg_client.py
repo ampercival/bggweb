@@ -272,8 +272,7 @@ class BGGClient:
         batch_size: int = 20,
         on_progress=None,
     ) -> Iterator[Tuple[List[str], Dict[str, Dict], Dict[str, Dict]]]:
-        max_ids = batch_size
-        batch_size = max(1, min(batch_size, max_ids))
+        batch_size = max(1, batch_size)
         idx = 0
         current_batch = batch_size
         total_ids = len(ids)
@@ -434,7 +433,6 @@ class BGGClient:
                     on_progress(processed=min(idx, total_ids), total=total_ids, batch=current_batch, status="running")
                 except Exception:
                     pass
-            current_batch = min(batch_size, max_ids)
             self._sleep(self.detail_throttle_sec)
             yield chunk, chunk_details, chunk_counts
 

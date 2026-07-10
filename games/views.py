@@ -172,16 +172,14 @@ def _compute_rows_context(request):
     # Categories & Families Counts
     cat_counts, fam_counts, mec_counts = game_filter.get_category_counts(qs_pre_category)
 
+    # The eight pinned buckets (Strategy, Thematic, etc.) are BGG "families",
+    # so their counts come from fam_counts; everything else is a category.
     pinned_display = [
-        'Abstract', "Children's Game", 'Customizable', 'Family', 
+        'Abstract', "Children's Game", 'Customizable', 'Family',
         'Party Game', 'Strategy', 'Thematic', 'Wargame'
     ]
-    top_cat_pairs = [(name, fam_counts.get(name, 0)) for name in pinned_display] # pinned are families mostly? check orig logic
-    # Orig logic: pinned looked into family_counts? actually it seemed to check family_counts but names match categories?
-    # Wait, in orig logic: 
-    # top_cat_pairs = [(name, family_counts.get(name, 0)) for name in pinned_display]
-    # NOTE: BGG calls these 'families' (Strategy, Thematic etc) usually, sometimes categories.
-    
+    top_cat_pairs = [(name, fam_counts.get(name, 0)) for name in pinned_display]
+
     other_names = sorted(cat_counts.keys(), key=lambda x: x.lower())
     other_cat_pairs = [(name, cat_counts.get(name, 0)) for name in other_names]
 
@@ -196,7 +194,7 @@ def _compute_rows_context(request):
     pinned_norm = {name.lower() for name in pinned_display}
     open_more_categories = any(cat.lower() not in pinned_norm for cat in selected_categories)
     
-    # Check if any selected mechanic is in 'other' list, if so we might want to default open?
+    # Open the "show more" mechanics panel when a selected mechanic lives in it.
     top_mech_names = {m[0] for m in top_mech_pairs}
     open_more_mechanics = any(m not in top_mech_names for m in selected_mechanics)
 
@@ -206,13 +204,14 @@ def _compute_rows_context(request):
     selected_owners = game_filter._get_list('owners')
     owner_usernames = sorted(tracked_owner_set | collection_owner_set | set(selected_owners))
 
-    # Reconstruct query string for pagination/sorting links
-    # Logic similar to orig but cleaner to just grab generic params
-    # Or reuse existing logic. For safety, let's keep it simple.
+    # Query strings for sort/pagination links: one with the current params, and
+    # one with sort/dir stripped (so a column header can set its own direction).
     query_dict = request.GET.copy()
     qs_param = '?' + query_dict.urlencode()
-    if 'sort' in query_dict: del query_dict['sort']
-    if 'dir' in query_dict: del query_dict['dir']
+    if 'sort' in query_dict:
+        del query_dict['sort']
+    if 'dir' in query_dict:
+        del query_dict['dir']
     qs_nosort = '?' + query_dict.urlencode()
 
     total_games = Game.objects.count()

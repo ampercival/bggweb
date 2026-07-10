@@ -33,7 +33,10 @@ def game_detail(year=2015, weight=2.5, weight_votes=300, bgg_rank=1,
 def player_count(best_votes=0, rec_votes=0, notrec_votes=0):
     """A single player-count poll row with derived percentages."""
     total = best_votes + rec_votes + notrec_votes
-    pct = lambda v: round((v / total) * 100, 1) if total else 0.0
+
+    def pct(v):
+        return round((v / total) * 100, 1) if total else 0.0
+
     return {
         "Best %": pct(best_votes),
         "Best Votes": best_votes,

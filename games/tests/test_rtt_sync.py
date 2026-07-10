@@ -1,7 +1,14 @@
+from unittest import mock
+
 from django.test import TestCase
 
-from games.models import Collection, Game, OwnedGame, RTTGame
-from games.tasks import RTT_OWNER_LABEL, _purge_untracked_collections, sync_rtt_collection
+from games.models import Collection, FetchJob, Game, OwnedGame, RTTGame
+from games.tasks import (
+    RTT_OWNER_LABEL,
+    _purge_untracked_collections,
+    run_scrape_rtt,
+    sync_rtt_collection,
+)
 
 
 class SyncRTTCollectionTests(TestCase):
@@ -84,3 +91,36 @@ class SyncRTTCollectionTests(TestCase):
         self.assertTrue(OwnedGame.objects.filter(collection=coll, game=game).exists())
         game.refresh_from_db()
         self.assertEqual(game.owned_by, [RTT_OWNER_LABEL])
+
+
+class RunScrapeRTTJobTests(TestCase):
+    def test_job_upserts_prunes_and_tags(self):
+        # A catalog game that is on RTT, and a stale RTTGame that is no longer listed.
+        game = Game.objects.create(bgg_id="91", title="Paths of Glory", type="Base Game")
+        RTTGame.objects.create(bgg_id="404", slug="gone", title="Removed From RTT")
+        job = FetchJob.objects.create(kind="rtt", params={}, status="pending", total=0)
+
+        scraped = [
+            {"bgg_id": "91", "slug": "paths-of-glory", "title": "Paths of Glory"},
+            {"bgg_id": "888", "slug": "future-game", "title": "Not In Catalog Yet"},
+        ]
+        with mock.patch("games.tasks.RTTClient") as MockClient:
+            MockClient.return_value.fetch_games.return_value = scraped
+            run_scrape_rtt.now(job.id)
+
+        # RTTGame table reflects exactly the scraped set (stale row pruned).
+        self.assertEqual(set(RTTGame.objects.values_list("bgg_id", flat=True)), {"91", "888"})
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, "done")
+        self.assertEqual(job.total, 2)
+        self.assertEqual(job.progress, 2)
+
+        # The catalog game is tagged; the off-catalog one is stored but untagged.
+        game.refresh_from_db()
+        self.assertEqual(game.owned_by, [RTT_OWNER_LABEL])
+        coll = Collection.objects.get(username=RTT_OWNER_LABEL)
+        self.assertEqual(
+            set(OwnedGame.objects.filter(collection=coll).values_list("game__bgg_id", flat=True)),
+            {"91"},
+        )

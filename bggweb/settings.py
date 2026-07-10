@@ -1,17 +1,30 @@
 import os
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
+
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-not-secret')
-
 # Default to a SAFE (production) posture. Set DJANGO_DEBUG=True locally.
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
+
+# Production must provide a real secret key; dev and the test runner fall back to
+# an insecure placeholder so the app boots without extra setup.
+_RUNNING_TESTS = 'test' in sys.argv
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG or _RUNNING_TESTS:
+        SECRET_KEY = 'dev-not-secret'
+    else:
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is not True.'
+        )
 
 # ALLOWED_HOSTS comes from the environment (comma-separated). In DEBUG we fall
 # back to local hostnames; in production it must be configured explicitly.
@@ -90,7 +103,12 @@ if DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3':
     DATABASES['default'].setdefault('OPTIONS', {})
     DATABASES['default']['OPTIONS'].setdefault('timeout', 30)
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

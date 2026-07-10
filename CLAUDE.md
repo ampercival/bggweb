@@ -133,8 +133,9 @@ truth for the denormalized `Game.owned`/`owned_by` fields).
   applies all GET-param filters (search, owners, type, playable, player_count, year/rating/weight
   sliders, voters, categories/families, mechanics), and computes scores via DB annotations.
 - **Scoring**: `pc_score_unadj = best%*3 + rec%*2 − notrec%*2`; "Playable" means `pc_score_unadj ≥ 150`.
-  `pc_score` is that value min-max normalized to 0–10 across the result set; `score_factor =
-  (avg_rating*3 + pc_score) / 4`. **If you change a formula, change it in BOTH `utils.py`'s
+  `pc_score` is that value min-max normalized to 0–10 against the **min/max across all
+  player-count rows** (a stable, filter-independent scale computed from `qs_for_norm` before
+  filters are applied — see `GameFilter.get_queryset`); `score_factor = (avg_rating*3 + pc_score) / 4`. **If you change a formula, change it in BOTH `utils.py`'s
   annotations AND `serialize_game_row` so DB-sort order matches displayed values.**
 - **`serialize_game_row`** turns a record into the dict the templates/CSV consume.
 - `views._compute_rows_context` is the shared source for `games_list` (full page), `games_rows`
@@ -171,6 +172,12 @@ python manage.py collectstatic      # required before/at deploy (WhiteNoise serv
 python manage.py shell
 python manage.py test games          # run the test suite
 ```
+
+### Linting & dev tooling
+Dev/CI tooling lives in `requirements-dev.txt` (`pip install -r requirements-dev.txt`). Lint with
+**ruff** (`ruff check .`); config is in `pyproject.toml` (conservative `E4/E7/E9/F` set, migrations
+excluded). CI runs `ruff check .` before the Django checks and tests. Copy `.env.example` → `.env`
+for a documented starting point on environment variables.
 
 > **Local dev:** `DJANGO_DEBUG` now defaults to **`False`** (a safe production posture). Set
 > `DJANGO_DEBUG=True` in your shell or `.env` for development (better error pages, permissive

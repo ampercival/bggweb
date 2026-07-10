@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# Auto-generated migrations are excluded from linting.
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+# A conservative, high-signal set: pyflakes (F) catches real bugs (unused
+# imports/names, undefined names), and the pycodestyle E4/E7/E9 groups catch
+# import placement, statement, and syntax issues. Style-only rules (e.g. line
+# length) are intentionally left off to avoid noisy churn.
+select = ["E4", "E7", "E9", "F"]
