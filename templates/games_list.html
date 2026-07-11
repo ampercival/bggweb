@@ -165,12 +165,12 @@
         <div class="range-field">
           <div class="range-line">
             <input id="min_year" name="min_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}"
-              step="1" value="{{ min_year|default:year_slider_min }}">
+              step="1" value="{{ min_year|default:year_slider_min }}" aria-label="Minimum year">
             <span class="range-value" id="min_year_val"></span>
           </div>
           <div class="range-line">
             <input id="max_year" name="max_year" type="range" min="{{ year_slider_min }}" max="{{ year_slider_max }}"
-              step="1" value="{{ max_year|default:year_slider_max }}">
+              step="1" value="{{ max_year|default:year_slider_max }}" aria-label="Maximum year">
             <span class="range-value" id="max_year_val"></span>
           </div>
         </div>
@@ -181,12 +181,12 @@
         <div class="range-field">
           <div class="range-line">
             <input id="min_avg_rating" name="min_avg_rating" type="range" min="0" max="10" step="0.1"
-              value="{{ min_avg_rating|default:'0' }}">
+              value="{{ min_avg_rating|default:'0' }}" aria-label="Minimum average rating">
             <span class="range-value" id="min_avg_rating_val"></span>
           </div>
           <div class="range-line">
             <input id="max_avg_rating" name="max_avg_rating" type="range" min="0" max="10" step="0.1"
-              value="{{ max_avg_rating|default:'10' }}">
+              value="{{ max_avg_rating|default:'10' }}" aria-label="Maximum average rating">
             <span class="range-value" id="max_avg_rating_val"></span>
           </div>
         </div>
@@ -197,12 +197,12 @@
         <div class="range-field">
           <div class="range-line">
             <input id="min_weight" name="min_weight" type="range" min="0" max="5" step="0.1"
-              value="{{ min_weight|default:'0' }}">
+              value="{{ min_weight|default:'0' }}" aria-label="Minimum weight">
             <span class="range-value" id="min_weight_val"></span>
           </div>
           <div class="range-line">
             <input id="max_weight" name="max_weight" type="range" min="0" max="5" step="0.1"
-              value="{{ max_weight|default:'5' }}">
+              value="{{ max_weight|default:'5' }}" aria-label="Maximum weight">
             <span class="range-value" id="max_weight_val"></span>
           </div>
         </div>
@@ -261,7 +261,7 @@
               <a href="?sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}{{ qs }}"
                 data-sort="{{ column }}"
                 data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
-                {{ label }}<span class="sort-arrow">{% if sort == column %}{% if dir == 'desc' %} v{% else %} ^{% endif %}{% endif %}</span>
+                {{ label }}<span class="sort-arrow" aria-hidden="true">{% if sort == column %}{% if dir == 'desc' %} ▼{% else %} ▲{% endif %}{% endif %}</span>
               </a>
             </th>
             {% else %}

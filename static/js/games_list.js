@@ -141,7 +141,7 @@
       var arrow = link.querySelector('.sort-arrow');
       var th = link.closest('th');
       if (link.dataset.sort === currentSort) {
-        if (arrow) arrow.textContent = currentDir === 'desc' ? ' v' : ' ^';
+        if (arrow) arrow.textContent = currentDir === 'desc' ? ' ▼' : ' ▲';
         link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
         if (th) th.setAttribute('aria-sort', currentDir === 'desc' ? 'descending' : 'ascending');
       } else {

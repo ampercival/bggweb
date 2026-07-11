@@ -16,7 +16,7 @@ computed score so you can find which games play best at a given table size. Data
 - Datastore: **SQLite** by default (`db.sqlite3`), Postgres-capable via `DATABASE_URL`
 - Background work: **`django-background-tasks`** (a `process_tasks` worker — no Celery/Redis)
 - External data source: BGG XML API2 (`thing`, `collection`) + the BGG ranks **CSV data-dump ZIP**
-- Frontend: server-rendered Django templates with mostly **inline CSS/JS** (no build step, no JS framework); shared helpers live in `static/js/site.js`
+- Frontend: server-rendered Django templates; CSS/JS live in **static files** under `static/css/` and `static/js/` (no build step, no JS framework), served by WhiteNoise
 - Static files served in production by **WhiteNoise** (`collectstatic` → compressed/hashed)
 - Tests: Django test runner under `games/tests/`; CI runs them via `.github/workflows/ci.yml`
 
@@ -56,7 +56,8 @@ bggweb/                     # repo root
 │   ├── game_detail.html    # single game + player-count breakdown
 │   └── partials/games_rows.html  # AJAX-rendered table rows
 ├── static/                 # source static assets (collected into staticfiles/)
-│   └── js/site.js          # shared client helpers (local-time + footer year)
+│   ├── css/                # site.css (global) + per-page: games_list, home, refresh, job_detail, game_detail
+│   └── js/                 # site.js (shared), games_list.js, job_detail.js
 └── .github/workflows/ci.yml  # runs check + migration check + tests
 ```
 
@@ -219,8 +220,11 @@ the suite runs with `DEBUG=False`. Run with `python manage.py test games`.
   `@user_passes_test(is_superuser)`.
 - **CSV export** (`export_csv`) streams the **full filtered result set** (not the current page) via
   `StreamingHttpResponse`; its columns must stay in sync with `games_list`/`games_rows` (25 columns).
-- Most page styling/JS is inline in templates; shared client helpers live in `static/js/site.js`.
-  There's no asset build, no Node, no CSS framework — WhiteNoise + `collectstatic` handle static files.
+- Page styling/JS lives in `static/css/` and `static/js/` (a global `site.css`/`site.js` loaded by
+  `base.html`, plus per-page files linked from each template's `extra_head`/`extra_scripts`). Templated
+  values a script needs (e.g. the games-list rows endpoint, default sort/dir, year bounds) are passed
+  via `data-*` attributes, since static JS can't use `{% templatetag openblock %} ... {% templatetag closeblock %}` tags. There's no asset build, no Node,
+  no CSS framework — WhiteNoise + `collectstatic` handle static files.
 - License: **CC BY-NC 4.0** (see `LICENSE`).
 
 ## Git / Contribution Notes
