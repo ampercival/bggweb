@@ -5,6 +5,7 @@ from django.utils import timezone
 from background_task import background
 
 from .models import (
+    BGAGame,
     Category,
     Collection,
     Family,
@@ -15,15 +16,19 @@ from .models import (
     PlayerCountRecommendation,
     RTTGame,
 )
-from .services.bgg_client import BGGClient
+from .services.bgg_client import BGGClient, BGA_FAMILY_ID
 from .services.rtt_client import RTTClient
 from .utils import recompute_owned_flags
 
 log = logging.getLogger(__name__)
 
-# The Rally the Troops availability tag is modelled as a pseudo-collection with
-# this username, so it behaves exactly like a tracked BGG owner in the UI.
+# External-platform availability tags are modelled as pseudo-collections with
+# these usernames, so each behaves exactly like a tracked BGG owner in the UI.
 RTT_OWNER_LABEL = "Rally the Troops"
+BGA_OWNER_LABEL = "Board Game Arena"
+# Collections that are managed by platform scrapes (not tracked BGG users) and
+# must survive refresh pruning.
+PLATFORM_OWNER_LABELS = {RTT_OWNER_LABEL, BGA_OWNER_LABEL}
 
 
 class JobCancelled(Exception):
@@ -394,9 +399,10 @@ def _sync_catalog(
 
 def _purge_untracked_collections(active_usernames):
     normalized = {(u or '').strip() for u in (active_usernames or []) if (u or '').strip()}
-    # Never purge the Rally the Troops pseudo-collection: it is not a tracked BGG
-    # user but must survive refreshes (its membership comes from RTTGame).
-    normalized.add(RTT_OWNER_LABEL)
+    # Never purge the platform pseudo-collections (Rally the Troops, Board Game
+    # Arena): they are not tracked BGG users but must survive refreshes (their
+    # membership comes from RTTGame / BGAGame).
+    normalized |= PLATFORM_OWNER_LABELS
     purge_qs = Collection.objects.exclude(username__in=normalized)
     if not purge_qs.exists():
         return
@@ -413,22 +419,21 @@ def _purge_untracked_collections(active_usernames):
     recompute_owned_flags(affected_game_ids)
 
 
-def sync_rtt_collection():
-    """Project the ``RTTGame`` source-of-truth table onto the catalog.
+def _sync_platform_collection(label, bgg_ids):
+    """Reconcile a platform pseudo-collection against a set of BGG ids.
 
-    Ensures the ``RTT_OWNER_LABEL`` collection owns exactly the catalog games
-    whose ``bgg_id`` appears in ``RTTGame``, then refreshes the denormalized
-    ``owned`` / ``owned_by`` flags via :func:`recompute_owned_flags`. This is the
-    single point that turns scraped RTT ids into the owner-style tag; it is
+    Ensures the ``label`` collection owns exactly the catalog games whose
+    ``bgg_id`` is in ``bgg_ids``, then refreshes the denormalized ``owned`` /
+    ``owned_by`` flags via :func:`recompute_owned_flags`. This is the single
+    point that turns a platform's game list into the owner-style tag; it is
     idempotent and safe to call at the end of any data job (that is what
     implements the "tag later" behaviour for games newly pulled into the
-    catalog).
+    catalog). Ids not present in the catalog are simply ignored until a later
+    refresh adds them.
     """
-    coll, _ = Collection.objects.get_or_create(username=RTT_OWNER_LABEL)
-    rtt_ids = set(RTTGame.objects.values_list("bgg_id", flat=True))
-    desired_games = (
-        list(Game.objects.filter(bgg_id__in=rtt_ids)) if rtt_ids else []
-    )
+    coll, _ = Collection.objects.get_or_create(username=label)
+    bgg_ids = set(bgg_ids or [])
+    desired_games = list(Game.objects.filter(bgg_id__in=bgg_ids)) if bgg_ids else []
     desired_pks = {game.pk for game in desired_games}
 
     existing_by_game = {}
@@ -452,6 +457,27 @@ def sync_rtt_collection():
         OwnedGame.objects.filter(id__in=to_delete).delete()
 
     recompute_owned_flags(affected_pks)
+
+
+def sync_rtt_collection():
+    """Project the ``RTTGame`` source-of-truth table onto the catalog."""
+    _sync_platform_collection(
+        RTT_OWNER_LABEL, RTTGame.objects.values_list("bgg_id", flat=True)
+    )
+
+
+def sync_bga_collection():
+    """Project the ``BGAGame`` source-of-truth table onto the catalog."""
+    _sync_platform_collection(
+        BGA_OWNER_LABEL, BGAGame.objects.values_list("bgg_id", flat=True)
+    )
+
+
+def sync_platform_collections():
+    """Reconcile every platform owner-tag. Called after each data job so tags
+    survive the pruning refreshes and newly-added games get tagged."""
+    sync_rtt_collection()
+    sync_bga_collection()
 
 
 
@@ -662,7 +688,7 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
         _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for Top N', job.id)
 
-        sync_rtt_collection()
+        sync_platform_collections()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -720,7 +746,7 @@ def run_fetch_collection(job_id: int, username: str):
         _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False, check_cancelled=check_cancel)
         log.info('Job %s: catalog sync complete for collection job', job.id)
 
-        sync_rtt_collection()
+        sync_platform_collections()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -1043,8 +1069,8 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             job.params = params_local
             job.save(update_fields=["params"])
 
-        # Re-tag Rally the Troops games now that the catalog has been rebuilt.
-        sync_rtt_collection()
+        # Re-tag platform games (RTT, BGA) now that the catalog has been rebuilt.
+        sync_platform_collections()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -1141,6 +1167,90 @@ def run_scrape_rtt(job_id: int):
         job.save(update_fields=["status", "finished_at"])
     except Exception as e:
         log.exception('Job %s: Rally the Troops scrape failed', job.id)
+        job.status = "error"
+        job.error = str(e) or 'Unknown error'
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "error", "finished_at"])
+
+
+@background(schedule=0)
+def run_fetch_bga(job_id: int, family_id: str | None = None):
+    job = FetchJob.objects.get(id=job_id)
+    job.status = "running"
+    job.progress = 0
+    job.total = 0
+    params = dict(job.params or {})
+    family_id = family_id or params.get('family_id') or BGA_FAMILY_ID
+    params['family_id'] = family_id
+    job.params = params
+    job.save(update_fields=["status", "progress", "total", "params"])
+    log.info('Job %s: starting Board Game Arena family fetch (family=%s)', job.id, family_id)
+
+    def check_cancel():
+        job.refresh_from_db(fields=['status'])
+        if job.status == 'cancelling':
+            raise JobCancelled()
+
+    last_save = 0.0
+
+    def on_progress(**kw):
+        nonlocal last_save
+        if "total" in kw:
+            job.total = kw["total"]
+        if "progress" in kw:
+            job.progress = kw["progress"]
+        now_ts = time.time()
+        if now_ts - last_save >= 0.5:
+            job.save(update_fields=["progress", "total"])
+            last_save = now_ts
+
+    client = BGGClient()
+    try:
+        check_cancel()
+        games = client.fetch_family_members(family_id, on_progress=on_progress)
+        check_cancel()
+        log.info('Job %s: Board Game Arena family returned %s games', job.id, len(games))
+
+        # De-duplicate by BGG id.
+        by_id = {}
+        for g in games:
+            by_id.setdefault(str(g["bgg_id"]), g)
+        member_ids = set(by_id.keys())
+
+        existing = BGAGame.objects.in_bulk(field_name="bgg_id")
+        to_create = []
+        to_update = []
+        for bid, g in by_id.items():
+            row = existing.get(bid)
+            title = g.get("title") or ""
+            if row:
+                if title and row.title != title:
+                    row.title = title
+                    to_update.append(row)
+            else:
+                to_create.append(BGAGame(bgg_id=bid, title=title))
+        if to_create:
+            BGAGame.objects.bulk_create(to_create, ignore_conflicts=True)
+        if to_update:
+            BGAGame.objects.bulk_update(to_update, ["title"], batch_size=500)
+        # Drop games no longer in the family.
+        BGAGame.objects.exclude(bgg_id__in=member_ids).delete()
+
+        sync_bga_collection()
+
+        job.total = len(member_ids)
+        job.progress = len(member_ids)
+        job.status = "done"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at", "progress", "total"])
+        log.info('Job %s: Board Game Arena fetch finished (%s games)', job.id, len(member_ids))
+    except JobCancelled:
+        log.info('Job %s: Board Game Arena fetch cancelled', job.id)
+        job.status = "cancelled"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
+    except Exception as e:
+        log.exception('Job %s: Board Game Arena fetch failed', job.id)
         job.status = "error"
         job.error = str(e) or 'Unknown error'
         job.finished_at = timezone.now()

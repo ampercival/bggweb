@@ -33,7 +33,7 @@ bggweb/                     # repo root
 │   ├── settings.py         # env-driven config; SQLite default; logging; WAL pragmas
 │   └── urls.py             # admin/ + includes games.urls at root
 ├── games/                  # the ONLY app — all domain logic lives here
-│   ├── models.py           # Game, Category, Family, Mechanic, BGGUser, RTTGame,
+│   ├── models.py           # Game, Category, Family, Mechanic, BGGUser, RTTGame, BGAGame,
 │   │                       #   PlayerCountRecommendation, Collection, OwnedGame, FetchJob
 │   ├── views.py            # page + AJAX views; orchestrates jobs and the games table
 │   ├── utils.py            # GameFilter (query building) + serialize_game_row (scoring)
@@ -44,9 +44,9 @@ bggweb/                     # repo root
 │   ├── urls.py             # app routes
 │   ├── admin.py            # Django admin registrations
 │   ├── apps.py             # enables SQLite WAL/synchronous pragmas on connect
-│   ├── migrations/         # 0001–0007
+│   ├── migrations/         # 0001–0008
 │   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client,
-│                           #   test_rtt_client, test_rtt_sync)
+│                           #   test_rtt_client, test_rtt_sync, test_bga_sync)
 ├── templates/              # project-level templates (DIRS = BASE_DIR/templates)
 │   ├── base.html           # layout, shared inline CSS, nav, messages, loads static/js/site.js
 │   ├── home.html           # landing page
@@ -75,17 +75,20 @@ bggweb/                     # repo root
   (best/rec/notrec pct + votes, total votes). This is the table the games list iterates over.
 - **`BGGUser`** — a tracked BGG username (drives which collections a refresh pulls).
 - **`Collection` / `OwnedGame`** — a user's owned games (M2M through table). Ownership is also
-  denormalized onto `Game.owned`/`Game.owned_by` for fast filtering/display. The **"Rally the Troops"
-  availability tag reuses this**: it is a pseudo-`Collection` named `"Rally the Troops"` (see
-  `RTT_OWNER_LABEL` in `tasks.py`) so it shows up in the owner filter cloud / Owners column exactly
-  like a tracked BGG owner — no dedicated games-table column.
-- **`RTTGame`** — source of truth for Rally the Troops availability (`bgg_id`, `slug`, `title`),
-  populated by scraping [rally-the-troops.com](https://www.rally-the-troops.com/games/library). Kept
-  separate from the catalog so a scraped game is remembered even when it is not currently in the
-  catalog, and tagged if/when a later refresh pulls it in. `tasks.sync_rtt_collection()` projects
-  `RTTGame ∩ catalog` onto the "Rally the Troops" collection's `OwnedGame` rows.
-- **`FetchJob`** — tracks a background job: `kind` (`top_n`|`collection`|`refresh`|`rtt`), `params`
-  (JSON, includes per-phase progress under `params["phases"]`), `status`, `progress`/`total`, `error`.
+  denormalized onto `Game.owned`/`Game.owned_by` for fast filtering/display. **External-platform
+  availability tags reuse this**: "Rally the Troops" and "Board Game Arena" are pseudo-`Collection`s
+  named by `RTT_OWNER_LABEL` / `BGA_OWNER_LABEL` (in `tasks.py`, collected in `PLATFORM_OWNER_LABELS`)
+  so each shows up in the owner filter cloud / Owners column exactly like a tracked BGG owner — no
+  dedicated games-table column.
+- **`RTTGame` / `BGAGame`** — sources of truth for the platform tags (`bgg_id` + title; RTT also
+  stores `slug`). RTT is populated by scraping [rally-the-troops.com](https://www.rally-the-troops.com/games/library);
+  BGA from the BGG boardgamefamily API (`BGA_FAMILY_ID` = 70360). Kept separate from the catalog so a
+  game is remembered even when not currently in it, and tagged if/when a later refresh pulls it in.
+  `tasks._sync_platform_collection(label, ids)` projects each table `∩ catalog` onto that platform's
+  `OwnedGame` rows; `sync_rtt_collection` / `sync_bga_collection` / `sync_platform_collections` wrap it.
+- **`FetchJob`** — tracks a background job: `kind` (`top_n`|`collection`|`refresh`|`rtt`|`bga`),
+  `params` (JSON, includes per-phase progress under `params["phases"]`), `status`, `progress`/`total`,
+  `error`.
 
 ## Key Workflows
 
@@ -101,13 +104,19 @@ Three `@background(schedule=0)` task functions, each kicked off from `views.refr
    Maintains the four-phase progress object (`top_n`, `collection`, `details`, `cleanup`) in
    `job.params["phases"]`, throttling DB writes (`save_throttled`, ~0.5s).
 
-A fourth job, **`run_scrape_rtt(job_id)`** (`kind='rtt'`), scrapes the Rally the Troops library via
-`services/rtt_client.RTTClient` (the only place that talks to rally-the-troops.com; throttled, polite
-User-Agent, `RTT_THROTTLE_SEC` env). It upserts/prunes `RTTGame` rows, then calls
-`sync_rtt_collection()`. That reconcile helper is **also called at the end of `run_refresh`,
-`run_fetch_top_n`, and `run_fetch_collection`** so the tag survives the pruning refreshes, and
-`_purge_untracked_collections` protects the `"Rally the Troops"` collection from deletion. Launched
-from the "Scrape Rally the Troops" button on `/refresh/` (POST `action=rtt`).
+Two more jobs build the platform tags:
+- **`run_scrape_rtt(job_id)`** (`kind='rtt'`) scrapes the Rally the Troops library via
+  `services/rtt_client.RTTClient` (the only place that talks to rally-the-troops.com; throttled,
+  polite User-Agent, `RTT_THROTTLE_SEC` env), upserts/prunes `RTTGame`, then `sync_rtt_collection()`.
+- **`run_fetch_bga(job_id, family_id)`** (`kind='bga'`) reads the BGG boardgamefamily via
+  `BGGClient.fetch_family_members` (uses the `BGG_API_TOKEN` bearer header like the other BGG calls;
+  BGG returns 401 without it), upserts/prunes `BGAGame`, then `sync_bga_collection()`.
+
+`sync_platform_collections()` (both reconciles) is **also called at the end of `run_refresh`,
+`run_fetch_top_n`, and `run_fetch_collection`** so the tags survive the pruning refreshes, and
+`_purge_untracked_collections` protects the `PLATFORM_OWNER_LABELS` collections from deletion.
+Launched from the "Scrape Rally the Troops" / "Fetch Board Game Arena" buttons on `/refresh/` (POST
+`action=rtt` / `action=bga`).
 
 Cancellation: views set `status='cancelling'`; tasks poll via `check_cancel()` and raise `JobCancelled`.
 

@@ -96,6 +96,26 @@ class RTTGame(models.Model):
         return f"RTTGame({self.title or self.slug} / {self.bgg_id})"
 
 
+class BGAGame(models.Model):
+    """A game implemented on Board Game Arena (boardgamearena.com).
+
+    Source of truth for the "Board Game Arena" availability tag, populated from
+    the BGG boardgamefamily that lists BGA digital implementations (see
+    ``BGA_FAMILY_ID`` in ``services/bgg_client.py``). Mirrors :class:`RTTGame`:
+    kept separate from the catalog so a game is remembered even when it is not
+    currently in the catalog, and tagged if/when a later refresh pulls it in.
+    """
+    bgg_id = models.CharField(max_length=20, unique=True)
+    title = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title']
+
+    def __str__(self):
+        return f"BGAGame({self.title} / {self.bgg_id})"
+
+
 class Collection(models.Model):
     username = models.CharField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -116,6 +136,7 @@ class FetchJob(models.Model):
         ('collection', 'Collection'),
         ('refresh', 'Refresh'),
         ('rtt', 'Rally the Troops'),
+        ('bga', 'Board Game Arena'),
     ]
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     params = models.JSONField(default=dict)

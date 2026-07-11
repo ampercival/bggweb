@@ -125,6 +125,36 @@ class ThingDetailParsingTests(SimpleTestCase):
         self.assertEqual(pc["3"]["Total Votes"], 100)
 
 
+FAMILY_XML = b"""<?xml version="1.0"?>
+<items>
+  <item type="boardgamefamily" id="70360">
+    <name type="primary" sortindex="1" value="Digital Implementations: Board Game Arena"/>
+    <description>Games playable on Board Game Arena.</description>
+    <link type="boardgamefamily" id="13" value="Catan" inbound="true"/>
+    <link type="boardgamefamily" id="9209" value="Ticket to Ride" inbound="true"/>
+    <link type="boardgamefamily" id="13" value="Catan (dup)" inbound="true"/>
+    <link type="boardgamecategory" id="1021" value="Economic"/>
+  </item>
+</items>"""
+
+
+class FamilyParsingTests(SimpleTestCase):
+    def test_parses_inbound_member_games(self):
+        client = _client()
+        with mock.patch.object(client, "_get", return_value=FakeResp(content=FAMILY_XML)):
+            members = client.fetch_family_members("70360")
+        # Inbound links only, de-duplicated, non-inbound links ignored.
+        self.assertEqual([m["bgg_id"] for m in members], ["13", "9209"])
+        self.assertEqual(members[0]["title"], "Catan")
+
+    def test_empty_family_raises(self):
+        client = _client()
+        empty = b"<items><item type='boardgamefamily' id='1'></item></items>"
+        with mock.patch.object(client, "_get", return_value=FakeResp(content=empty)):
+            with self.assertRaises(RuntimeError):
+                client.fetch_family_members("1")
+
+
 COLLECTION_XML = b"""<?xml version="1.0"?>
 <items>
   <item objectid="13">

@@ -17,6 +17,10 @@ DEFAULT_HEADERS = {
     "User-Agent": "bggweb/1.0 (+https://bggweb.onrender.com/)"
 }
 
+# BGG boardgamefamily "Digital Implementations: Board Game Arena": the family
+# whose member games are the ones playable on Board Game Arena.
+BGA_FAMILY_ID = "70360"
+
 
 
 
@@ -264,6 +268,52 @@ class BGGClient:
                     pass
             self._sleep(1.5)
         return out
+
+    # -------- Family API (member games of a boardgamefamily) --------
+    def fetch_family_members(self, family_id: str, on_progress=None) -> List[Dict[str, str]]:
+        """Return ``[{'bgg_id','title'}, ...]`` for every game in a BGG family.
+
+        Uses XML API2 ``family?id=`` and collects the item's inbound links, which
+        are the member games. Like the other ``thing``/``collection`` calls this
+        sends the optional ``BGG_API_TOKEN`` bearer header; without a valid token
+        BGG typically responds 401.
+        """
+        url = f"https://boardgamegeek.com/xmlapi2/family?id={family_id}"
+        try:
+            resp = self._get(url, headers=self.api_headers, max_retries=3)
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Failed to fetch the BGG family. If BGG returns 401 Unauthorized, "
+                "set BGG_API_TOKEN in the environment."
+            ) from exc
+
+        try:
+            root = ET.fromstring(resp.content)
+        except ET.ParseError as exc:
+            raise RuntimeError(
+                "BGG family response was not valid XML (check BGG_API_TOKEN and the family id)."
+            ) from exc
+
+        results: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        for item in root.findall("item"):
+            for link in item.findall("link"):
+                if link.get("inbound") != "true":
+                    continue
+                gid = link.get("id")
+                if not gid or gid in seen:
+                    continue
+                seen.add(gid)
+                results.append({"bgg_id": str(gid), "title": link.get("value") or ""})
+
+        if not results:
+            raise RuntimeError(f"BGG family {family_id} returned no linked games.")
+        if on_progress:
+            try:
+                on_progress(progress=len(results), total=len(results))
+            except Exception:
+                pass
+        return results
 
     # -------- Thing API (details + polls) --------
     def _iter_details_batches(

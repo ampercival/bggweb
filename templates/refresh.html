@@ -131,6 +131,22 @@
       </div>
     </form>
   </section>
+
+  <section class="card refresh-card" aria-labelledby="bga-fetch">
+    <h3 id="bga-fetch">Board Game Arena</h3>
+    <p class="note">Pull the <a href="https://boardgamegeek.com/boardgamefamily/70360/digital-implementations-board-game-arena" target="_blank" rel="noopener">Board Game Arena family</a> from the BGG API and tag those games with the <strong>Board Game Arena</strong> owner so you can filter to games playable on that platform. Re-run this any time to refresh the list.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="bga">
+      <div class="form-field">
+        <label for="bga_family_id">BGG family ID</label>
+        <input id="bga_family_id" name="family_id" type="text" value="70360" placeholder="70360">
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button secondary">Fetch Board Game Arena</button>
+      </div>
+    </form>
+  </section>
 </div>
 
 <section class="page-section">
