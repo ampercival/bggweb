@@ -73,9 +73,8 @@
           <input id="mechanicsSearch" type="text" placeholder="Search mechanics...">
           <button type="button" id="clearMechanics" class="ghost-button small">Clear</button>
         </div>
-        <div id="mechanicsList"
-          style="max-height: 210px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem; background: var(--surface);">
-          <div id="mechanicsTop" style="display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem;">
+        <div id="mechanicsList">
+          <div id="mechanicsTop">
             {% for pair in top_mechanics_pairs %}
             {% with mec=pair.0 cnt=pair.1 %}
             <label class="cat-item" data-name="{{ mec|lower }}">
@@ -86,10 +85,9 @@
             {% endfor %}
           </div>
           {% if other_mechanics_pairs %}
-          <details id="mechanicsMore" {% if open_more_mechanics %}open{% endif %}
-            style="border-top: 1px solid var(--border); margin-top: 0.35rem; padding-top: 0.35rem;">
-            <summary style="cursor: pointer; font-weight: 600; color: var(--primary);">Show {{ other_mechanics_pairs|length }} more</summary>
-            <div id="mechanicsListRest" style="display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem;">
+          <details id="mechanicsMore" {% if open_more_mechanics %}open{% endif %}>
+            <summary>Show {{ other_mechanics_pairs|length }} more</summary>
+            <div id="mechanicsListRest">
               {% for pair in other_mechanics_pairs %}
               {% with mec=pair.0 cnt=pair.1 %}
               <label class="cat-item" data-name="{{ mec|lower }}">

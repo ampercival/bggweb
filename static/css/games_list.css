@@ -84,6 +84,7 @@
 }
 
 #categoriesList,
+#mechanicsList,
 .owner-cloud {
   max-height: 210px;
   overflow: auto;
@@ -95,6 +96,8 @@
 
 #categoriesTop,
 #categoriesListRest,
+#mechanicsTop,
+#mechanicsListRest,
 .owner-cloud {
   display: flex;
   flex-wrap: wrap;
@@ -177,13 +180,15 @@
   background: var(--surface-muted);
 }
 
-details#categoriesMore {
+details#categoriesMore,
+details#mechanicsMore {
   border-top: 1px solid var(--border);
   margin-top: 0.35rem;
   padding-top: 0.35rem;
 }
 
-details#categoriesMore summary {
+details#categoriesMore summary,
+details#mechanicsMore summary {
   cursor: pointer;
   font-weight: 600;
   color: var(--primary);
