@@ -27,13 +27,15 @@ Write-Host "Activating virtual environment..."
 Write-Host "Installing dependencies..."
 pip install --quiet --disable-pip-version-check -r requirements.txt
 
+# Enable development settings for this session (DEBUG defaults to False so the
+# app is production-safe; turn it on here so local runs work out of the box).
+# This MUST come before manage.py runs: with DEBUG=False and no DJANGO_SECRET_KEY
+# the settings refuse to load, which would fail the migrate step below.
+$env:DJANGO_DEBUG = "True"
+
 # Run migrations
 Write-Host "Running migrations..."
 python manage.py migrate
-
-# Enable development settings for this session (DEBUG defaults to False so the
-# app is production-safe; turn it on here so local runs work out of the box).
-$env:DJANGO_DEBUG = "True"
 
 # Open the browser shortly after the server has had time to start. Honcho runs
 # in the foreground below, so do this from a background job.
