@@ -11,7 +11,10 @@ $ErrorActionPreference = "Stop"
 # Run from the repo root regardless of where the script was invoked from.
 Set-Location -Path $PSScriptRoot
 
-$DevUrl = "http://127.0.0.1:8001/"
+# Dev port. Must match the port in Procfile.dev (web process binds 0.0.0.0 so the
+# server is reachable from other devices on the LAN, not just this machine).
+$Port = 8471
+$DevUrl = "http://127.0.0.1:$Port/"
 
 # Check if .venv exists, if not create it
 if (-not (Test-Path ".venv")) {
@@ -33,6 +36,17 @@ pip install --quiet --disable-pip-version-check -r requirements.txt
 # the settings refuse to load, which would fail the migrate step below.
 $env:DJANGO_DEBUG = "True"
 
+# Let other devices on the LAN reach the server by this machine's IP. The web
+# process already binds 0.0.0.0 (Procfile.dev); Django still validates the Host
+# header, so add our LAN IPv4 address(es) to ALLOWED_HOSTS. Filters out loopback
+# (127.*) and link-local (169.254.*) addresses.
+$LanIps = @(
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } |
+        Select-Object -ExpandProperty IPAddress -Unique
+)
+$env:DJANGO_ALLOWED_HOSTS = (@('localhost', '127.0.0.1') + $LanIps) -join ','
+
 # Run migrations
 Write-Host "Running migrations..."
 python manage.py migrate
@@ -48,5 +62,8 @@ Start-Job -ScriptBlock {
 # Start Honcho (runs both web and worker from Procfile.dev). This blocks until
 # you press Ctrl+C, which stops both processes.
 Write-Host "Starting web server and background worker via Honcho..."
-Write-Host "App will open at $DevUrl  (press Ctrl+C to stop everything)"
+Write-Host "  Local:   $DevUrl  (press Ctrl+C to stop everything)"
+foreach ($ip in $LanIps) {
+    Write-Host "  Network: http://${ip}:$Port/  (open this on other devices)"
+}
 honcho start -f Procfile.dev
