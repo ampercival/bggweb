@@ -118,7 +118,7 @@ class ThingDetailParsingTests(SimpleTestCase):
 
         pc = counts["13"]
         self.assertIn("3", pc)
-        self.assertNotIn("4+", pc)  # '+' results are skipped
+        self.assertIn("4+", pc)  # Open-ended buckets retain their original meaning.
         self.assertEqual(pc["3"]["Best %"], 50.0)
         self.assertEqual(pc["3"]["Rec. %"], 30.0)
         self.assertEqual(pc["3"]["Not %"], 20.0)

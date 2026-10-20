@@ -71,7 +71,7 @@
       window.history.replaceState({}, '', window.location.pathname + '?' + canonical);
       document.getElementById('filteredExport').href = '/export.csv?' + canonical;
       notice.textContent = data.count + ' matching game/player-count rows.';
-      indicators();
+      indicators(); activeFilters();
     } catch (error) {
       if (current === sequence && error.name !== 'AbortError') {
         notice.textContent = 'Could not update results. Your previous results are still shown. Try Apply filters again.';
@@ -120,5 +120,19 @@
     page.value = Math.max(1, Math.min(total, Number(page.value) + (button.classList.contains('js-next') ? 1 : -1)));
     schedule(0);
   }));
-  labels(); indicators();
+  function activeFilters() {
+    const target = document.getElementById('activeFilters');
+    if (!target) return;
+    const values = [];
+    if (form.elements.namedItem('q').value) values.push('Title: ' + form.elements.namedItem('q').value);
+    const count = form.elements.namedItem('player_count').value;
+    if (count !== 'all') values.push('Players: ' + count);
+    form.querySelectorAll('input[type="checkbox"]:checked').forEach(el => values.push(el.value));
+    const minimum = form.elements.namedItem('min_poll_votes').value;
+    if (Number(minimum)) values.push('Poll votes: ' + minimum + '+');
+    target.replaceChildren(...values.map(value => { const chip = document.createElement('span'); chip.className = 'filter-chip'; chip.textContent = value; return chip; }));
+  }
+  const detailed = document.getElementById('detailedColumns');
+  detailed?.addEventListener('change', () => document.querySelector('.data-table').classList.toggle('show-details', detailed.checked));
+  labels(); indicators(); activeFilters();
 })();

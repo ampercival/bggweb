@@ -13,7 +13,7 @@
     <h1>{{ game.title }}</h1>
     <p class="note">BGG ID {{ game.bgg_id }} &middot; {{ game.year|default:'Year unknown' }} &middot; {{ game.type }}</p>
     <div class="tags">
-      {% if game.owned %}
+      {% if people %}
       <span class="tag">Owned</span>
       {% else %}
       <span class="tag">Not owned</span>
@@ -49,7 +49,7 @@
     <div>
       <span class="meta-label">Owned by</span>
       {% if game.owned_by %}
-        <p>{{ game.owned_by|join:', ' }}</p>
+        <p>{% if people %}Copy: {{ people|join:', ' }}{% endif %}{% if platforms %}<br>Online: {{ platforms|join:', ' }}{% endif %}</p>
       {% else %}
         <p class="note">No tracked players currently own this title.</p>
       {% endif %}
@@ -79,7 +79,7 @@
     <tbody>
       {% for pc in player_counts %}
       <tr>
-        <td>{{ pc.count }}</td>
+        <td>{{ pc.count }}{% if pc.is_open_ended %}+{% endif %}</td>
         <td>{{ pc.best_pct|floatformat:1 }}</td>
         <td>{{ pc.best_votes }}</td>
         <td>{{ pc.rec_pct|floatformat:1 }}</td>

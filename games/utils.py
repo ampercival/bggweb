@@ -17,6 +17,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 from .models import Game, OwnedGame, PlayerCountRecommendation
 from .filters import normalize_filters
+from .catalog import COLUMNS
 
 
 def recompute_owned_flags(game_ids):
@@ -104,11 +105,11 @@ class GameFilter:
         if playable_state == 'playable':
             qs = qs.filter(pc_score_unadj__gte=150)
         elif playable_state == 'not':
-            qs = qs.filter(pc_score_unadj__lt=150)
+            qs = qs.filter(pc_score_unadj__lt=150, vote_count__gt=0)
 
         player_count = self.params.get('player_count', 'all')
         if player_count.isdigit():
-            qs = qs.filter(count=int(player_count))
+            qs = qs.filter(count=int(player_count), is_open_ended=False)
         elif player_count == '8plus':
             qs = qs.filter(count__gte=8)
 
@@ -131,6 +132,8 @@ class GameFilter:
         min_voters = self._to_int(self.params.get('min_voters'))
         if min_voters is not None:
             qs = qs.filter(num_voters_co__gte=min_voters)
+
+        qs = qs.filter(vote_count__gte=int(self.params['min_poll_votes']))
 
         categories = self._get_list('categories')
         mechanics = self._get_list('mechanics')
@@ -201,7 +204,7 @@ class GameFilter:
         order_expr = order_map.get(sort, F('score_factor'))
         ordering = OrderBy(order_expr, descending=(direction == 'desc'), nulls_last=True)
         secondary_order = OrderBy(F('game__title'), nulls_last=True)
-        qs = qs.order_by(ordering, secondary_order, 'game__bgg_id', 'count')
+        qs = qs.order_by(ordering, secondary_order, 'game__bgg_id', 'count', 'is_open_ended')
 
         return qs, qs_pre_category, pc_range, pc_min
 
@@ -262,7 +265,7 @@ def serialize_game_row(rec, pc_range, pc_min):
         
     score_factor_val = float(rec.score_factor or 0.0)
     
-    return {
+    row = {
         'title': game.title,
         'game_id': game.bgg_id,
         'year': game.year,
@@ -281,7 +284,9 @@ def serialize_game_row(rec, pc_range, pc_min):
         'families_str': ', '.join(sorted(families)),
         'mechanics': mechanics,
         'mechanics_str': ', '.join(sorted(mechanics)),
-        'player_count': rec.count,
+        'player_count': f'{rec.count}+' if rec.is_open_ended else rec.count,
+        'people': [owner for owner in owners_list if owner not in ['Board Game Arena', 'Rally the Troops']],
+        'platforms': [owner for owner in owners_list if owner in ['Board Game Arena', 'Rally the Troops']],
         'best_pct': rec.best_pct or 0.0,
         'best_votes': rec.best_votes or 0,
         'rec_pct': rec.rec_pct or 0.0,
@@ -292,5 +297,9 @@ def serialize_game_row(rec, pc_range, pc_min):
         'pc_score_unadj': round(pc_unadj, 1),
         'pc_score': round(pc_score_val, 2),
         'score_factor': round(score_factor_val, 3),
-        'playable': 'Playable' if pc_unadj >= 150 else 'Not Playable',
+        'playable': ('No poll votes' if not rec.vote_count else
+                     'Playable' if pc_unadj >= 150 else 'Not Playable'),
     }
+
+    row['cells'] = [{'key': key, 'value': row.get(value_key)} for key, _, value_key in COLUMNS]
+    return row

@@ -32,14 +32,27 @@
       data-default-dir="{{ dir|default:'desc' }}"
       data-year-min="{{ year_slider_min }}"
       data-year-max="{{ year_slider_max }}">
-      <div id="catalogFacets">{% include 'partials/catalog_facets.html' %}</div>
+      <div class="filter-field">
+        <label for="player_count">Player count</label>
+        <select name="player_count" id="player_count">
+          <option value="all" {% if player_count == 'all' %}selected{% endif %}>All</option>
+          <option value="1" {% if player_count == '1' %}selected{% endif %}>1</option>
+          <option value="2" {% if player_count == '2' %}selected{% endif %}>2</option>
+          <option value="3" {% if player_count == '3' %}selected{% endif %}>3</option>
+          <option value="4" {% if player_count == '4' %}selected{% endif %}>4</option>
+          <option value="5" {% if player_count == '5' %}selected{% endif %}>5</option>
+          <option value="6" {% if player_count == '6' %}selected{% endif %}>6</option>
+          <option value="7" {% if player_count == '7' %}selected{% endif %}>7</option>
+          <option value="8plus" {% if player_count == '8plus' %}selected{% endif %}>8 or more</option>
+        </select>
+      </div>
       <div class="filter-field">
         <label for="search_title">Search title</label>
         <input id="search_title" name="q" value="{{ q }}" type="text" placeholder="Example: Catan">
       </div>
 
-      <div class="filter-field">
-        <label>Owned by</label>
+      <div class="filter-field availability-filter">
+        <label>Available through</label>
         {% if owner_usernames %}
         <div class="owner-cloud">
           {% for owner in owner_usernames %}
@@ -56,15 +69,17 @@
         {% endif %}
       </div>
 
-      <div class="filter-field">
-        <label for="type">Type</label>
-        <select name="type" id="type">
-          <option value="all" {% if type_filter == 'all' %}selected{% endif %}>All</option>
-          <option value="base" {% if type_filter == 'base' %}selected{% endif %}>Base Game</option>
-          <option value="expansion" {% if type_filter == 'expansion' %}selected{% endif %}>Expansion</option>
-        </select>
-      </div>
 
+
+
+      <details id="advancedFilters" class="advanced-filters">
+        <summary>Advanced filters</summary>
+        <div class="filters-grid advanced-content">
+      <div class="filter-field">
+        <label for="min_poll_votes">Minimum player-count poll votes</label>
+        <input id="min_poll_votes" name="min_poll_votes" type="number" min="0" value="{{ min_poll_votes }}">
+      </div>
+      <div id="catalogFacets">{% include 'partials/catalog_facets.html' %}</div>
       <div class="filter-field">
         <label for="playable">Playable</label>
         <select name="playable" id="playable">
@@ -73,22 +88,14 @@
           <option value="not" {% if playable == 'not' %}selected{% endif %}>Not Playable</option>
         </select>
       </div>
-
       <div class="filter-field">
-        <label for="player_count">Player count</label>
-        <select name="player_count" id="player_count">
-          <option value="all" {% if player_count == 'all' %}selected{% endif %}>All</option>
-          <option value="1" {% if player_count == '1' %}selected{% endif %}>1</option>
-          <option value="2" {% if player_count == '2' %}selected{% endif %}>2</option>
-          <option value="3" {% if player_count == '3' %}selected{% endif %}>3</option>
-          <option value="4" {% if player_count == '4' %}selected{% endif %}>4</option>
-          <option value="5" {% if player_count == '5' %}selected{% endif %}>5</option>
-          <option value="6" {% if player_count == '6' %}selected{% endif %}>6</option>
-          <option value="7" {% if player_count == '7' %}selected{% endif %}>7</option>
-          <option value="8plus" {% if player_count == '8plus' %}selected{% endif %}>8 or more</option>
+        <label for="type">Type</label>
+        <select name="type" id="type">
+          <option value="all" {% if type_filter == 'all' %}selected{% endif %}>All</option>
+          <option value="base" {% if type_filter == 'base' %}selected{% endif %}>Base Game</option>
+          <option value="expansion" {% if type_filter == 'expansion' %}selected{% endif %}>Expansion</option>
         </select>
       </div>
-
       <div class="filter-field">
         <label>Year range</label>
         <div class="range-field">
@@ -138,7 +145,7 @@
       </div>
 
       <div class="filter-field">
-        <label for="min_voters">Minimum voters</label>
+        <label for="min_voters">Minimum BGG rating votes</label>
         <input id="min_voters" name="min_voters" type="number" min="0" value="{{ min_voters }}"
           placeholder="Example: 1000">
       </div>
@@ -154,6 +161,8 @@
         </select>
       </div>
 
+        </div>
+      </details>
       <input type="hidden" name="page" id="page_input" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="dir" value="{{ dir }}">
@@ -167,6 +176,16 @@
   </aside>
 
   <section class="results-card">
+    <div class="view-options">
+      <label><input type="checkbox" id="detailedColumns"> Show all 25 columns</label>
+      <a href="{% url 'games_missing' %}">Games without polls</a>
+    </div>
+    <details class="score-explainer"><summary>How recommendations work</summary>
+      <p>Score = (3 × BGG average rating + player score) ÷ 4. The player score uses Best × 3 + Recommended × 2 − Not recommended × 2, then scales the catalog's range to 0–10. It stays consistent across filters, but may change after an import.</p>
+      <p>Playable means a raw player score of at least 150. Polls with fewer than 20 votes are marked Small sample; this is a visibility aid, not a statistical confidence estimate. Use the poll-vote minimum to choose your own evidence threshold.</p>
+      <p>Exact player-count filters use exact polls. Open-ended BGG buckets, such as 8+, keep their original labels and are shown separately. Rows with zero votes have no recommendation evidence.</p>
+    </details>
+    <div id="activeFilters" class="active-filters" aria-live="polite"></div>
     <p id="resultsNotice" role="status" aria-live="polite"></p>
     <a id="filteredExport" class="button secondary small" href="{% url 'export_csv' %}?{{ canonical_query }}">Export filtered results</a>
     <div class="table-toolbar">
@@ -182,13 +201,13 @@
       </div>
     </div>
 
-    <div class="table-wrapper" role="region" aria-live="polite">
-      <table class="data-table">
+    <div class="table-wrapper" role="region" tabindex="0" aria-label="Game recommendations; scroll horizontally for more columns">
+      <table class="data-table compact-table">
         <thead>
           <tr>
             {% for column, label in column_label_pairs %}
             {% if column in sortable_columns %}
-            <th aria-sort="{% if sort == column %}{% if dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}">
+            <th data-column="{{ column }}" aria-sort="{% if sort == column %}{% if dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}">
               <a href="?{{ sort_query }}&sort={{ column }}&dir={% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}"
                 data-sort="{{ column }}"
                 data-next-dir="{% if sort == column and dir == 'desc' %}asc{% else %}desc{% endif %}">
@@ -196,7 +215,7 @@
               </a>
             </th>
             {% else %}
-            <th>{{ label }}</th>
+            <th data-column="{{ column }}">{{ label }}</th>
             {% endif %}
             {% endfor %}
           </tr>

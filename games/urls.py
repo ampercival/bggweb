@@ -13,6 +13,7 @@ urlpatterns = [
     path('jobs/clear/', views.clear_jobs, name='clear_jobs'),
     path('games/', views.games_list, name='games_list'),
     path('games/rows/', views.games_rows, name='games_rows'),
+    path('games/no-polls/', views.games_missing, name='games_missing'),
     path('games/<str:bgg_id>/', views.game_detail, name='game_detail'),
     path('export.csv', views.export_csv, name='export_csv'),
 ]

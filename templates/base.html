@@ -21,7 +21,7 @@
             <a class="nav-link{% if current == 'refresh' %} is-active{% endif %}" href="{% url 'refresh' %}">Refresh Data</a>
             <a class="nav-link" href="{% url 'admin:index' %}">Admin</a>
           {% endif %}
-          <a class="primary-action" href="{% url 'export_csv' %}">Export catalog CSV</a>
+          <a class="primary-action" href="{% url 'export_csv' %}">Catalog CSV</a>
         {% endwith %}
       </nav>
       <div class="auth-meta">

@@ -196,7 +196,7 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
     ).select_related("game")
     rec_map = {}
     for rec in existing_recs:
-        rec_map.setdefault(rec.game.bgg_id, {})[rec.count] = rec
+        rec_map.setdefault(rec.game.bgg_id, {})[(rec.count, rec.is_open_ended)] = rec
 
     recs_to_update = []
     recs_to_create = []
@@ -210,7 +210,8 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
         seen_counts = set()
         for count, data in counts.items():
             try:
-                count = int(count)
+                is_open_ended = str(count).endswith('+')
+                count = int(str(count).rstrip('+'))
             except (ValueError, TypeError):
                 continue
             
@@ -221,8 +222,8 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
             notrec_pct = _to_float(data.get("Not %")) or 0.0
             notrec_votes = _to_int(data.get("Not Votes")) or 0
             vote_count = _to_int(data.get("Total Votes")) or 0
-            seen_counts.add(count)
-            existing = rec_map.get(gid, {}).get(count)
+            seen_counts.add((count, is_open_ended))
+            existing = rec_map.get(gid, {}).get((count, is_open_ended))
             if existing:
                 before = (existing.best_pct, existing.best_votes, existing.rec_pct,
                           existing.rec_votes, existing.notrec_pct, existing.notrec_votes,
@@ -242,6 +243,7 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
                     PlayerCountRecommendation(
                         game=game,
                         count=count,
+                        is_open_ended=is_open_ended,
                         best_pct=best_pct,
                         best_votes=best_votes,
                         rec_pct=rec_pct,

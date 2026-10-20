@@ -4,7 +4,7 @@ COLUMNS = [
     ('game_id', 'Game ID', 'game_id'), ('year', 'Year', 'year'),
     ('bgg_rank', 'BGG Rank', 'bgg_rank'), ('avg_rating', 'Avg rating', 'avg_rating'),
     ('num_voters', 'Voters', 'num_voters'), ('weight', 'Weight', 'weight'),
-    ('weight_votes', 'Weight votes', 'weight_votes'), ('owners', 'Owners', 'owned_by_str'),
+    ('weight_votes', 'Weight votes', 'weight_votes'), ('owners', 'Availability', 'owned_by_str'),
     ('type', 'Type', 'type'), ('families', 'Families', 'families_str'),
     ('categories', 'Categories', 'categories_str'), ('mechanics', 'Mechanics', 'mechanics_str'),
     ('player_count', 'Players', 'player_count'), ('best_pct', 'Best %', 'best_pct'),

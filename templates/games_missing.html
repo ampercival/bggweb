@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Games without polls{% endblock %}
+{% block content %}
+<h1>Games without player-count polls</h1>
+<p>These games are in the catalog but have no player-count poll rows. Missing evidence does not mean a game is not recommended.</p>
+<p><a href="{% url 'games_list' %}">Back to recommendations</a></p>
+<ul>{% for game in page_obj %}<li><a href="{% url 'game_detail' game.bgg_id %}">{{ game.title }}</a></li>{% empty %}<li>All catalog games have poll rows.</li>{% endfor %}</ul>
+<p>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</p>
+{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+{% endblock %}

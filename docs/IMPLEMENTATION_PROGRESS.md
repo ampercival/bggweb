@@ -25,3 +25,9 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 - Added filtered export, a shared 25-column table/export contract (including Families), spreadsheet-formula text escaping, and live facet HTML. Facet counts describe game/player-count rows matching the basic filters, before taxonomy selections.
 - Import forms validate usernames, counts and HTTPS ranks hosts. Downloads validate redirects and cap compressed/uncompressed archive sizes.
 - Validation: 80 Django tests pass, Ruff and JavaScript syntax checks pass, full static collection passes. Browser at a fresh local origin retained Dice Rolling + Hand Management in selected controls, canonical URL and export URL and returned 12,207 combined rows. Migrations 0009/0010 applied locally. The browser had cached the pre-change assets at the earlier origin; fresh-origin verification confirmed the shipped source.
+
+## Game selection and evidence
+
+- Player count, title and availability now come before collapsed advanced filters. Results default to seven columns; all 25 remain available. Added active-filter chips, keyboard-focusable scrolling, score explanations and clear copy/online availability labels.
+- Added a poll-vote minimum, small-sample labels, distinct zero-vote wording and a browse page for games without polls. Exact and open-ended buckets coexist and keep their original labels in table/detail/CSV. Existing data requires a later successful import to obtain previously discarded open-ended buckets.
+- Validation: 84 Django tests pass, Ruff and migration drift checks pass, migration 0011 applied locally, static collection passed. On a 390 x 844 browser, filters fell from about 1,851 px to 354 px; advanced filters were collapsed and only seven result columns were visible. Additional small-header adjustments reduce the navigation overhead further. Final browser acceptance is repeated after the remaining performance changes.

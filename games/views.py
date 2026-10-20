@@ -274,6 +274,7 @@ def _compute_rows_context(request):
         'min_weight': request.GET.get('min_weight', '0.0'),
         'max_weight': request.GET.get('max_weight', '5.0'),
         'min_voters': request.GET.get('min_voters', ''),
+        'min_poll_votes': request.GET.get('min_poll_votes', '0'),
         'qs': qs_param,
         'qs_nosort': qs_nosort,
         'sort_query': query_dict.urlencode(),
@@ -319,13 +320,22 @@ def games_rows(request):
     })
 
 
+def games_missing(request):
+    games = Game.objects.filter(player_counts__isnull=True).order_by('title', 'bgg_id')
+    page = Paginator(games, 50).get_page(request.GET.get('page'))
+    return render(request, 'games_missing.html', {'page_obj': page})
+
+
 def game_detail(request, bgg_id: str):
     game = get_object_or_404(
         Game.objects.prefetch_related('categories', 'families', 'mechanics'),
         bgg_id=bgg_id,
     )
     pcs = game.player_counts.order_by('count')
-    return render(request, 'game_detail.html', {'game': game, 'player_counts': pcs})
+    people = [owner for owner in game.owned_by if owner not in ['Board Game Arena', 'Rally the Troops']]
+    platforms = [owner for owner in game.owned_by if owner in ['Board Game Arena', 'Rally the Troops']]
+    return render(request, 'game_detail.html', {'game': game, 'player_counts': pcs,
+                  'people': people, 'platforms': platforms})
 
 
 CSV_HEADER = [label for _, label, _ in COLUMNS]

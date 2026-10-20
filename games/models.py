@@ -59,6 +59,7 @@ class BGGUser(models.Model):
 class PlayerCountRecommendation(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='player_counts')
     count = models.IntegerField(db_index=True)
+    is_open_ended = models.BooleanField(default=False)
     best_pct = models.FloatField(default=0.0)
     best_votes = models.IntegerField(default=0)
     rec_pct = models.FloatField(default=0.0)
@@ -68,7 +69,7 @@ class PlayerCountRecommendation(models.Model):
     vote_count = models.IntegerField(default=0)
 
     class Meta:
-        unique_together = ('game', 'count')
+        unique_together = ('game', 'count', 'is_open_ended')
 
     def __str__(self):
         return f"{self.game.title} - {self.count}p"

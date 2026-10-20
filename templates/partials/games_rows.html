@@ -1,33 +1,20 @@
 {% for r in rows %}
 <tr>
-  <td>{{ r.score_factor }}</td>
-  <td><a href="{% url 'game_detail' bgg_id=r.game_id %}" target="_blank" rel="noopener">{{ r.title }}</a></td>
-  <td>{{ r.game_id }}</td>
-  <td>{{ r.year|default:'N/A' }}</td>
-  <td>{{ r.bgg_rank|default:'N/A' }}</td>
-  <td>{% if r.avg_rating is not None %}{{ r.avg_rating|floatformat:2 }}{% else %}N/A{% endif %}</td>
-  <td>{{ r.num_voters }}</td>
-  <td>{{ r.weight|default:'N/A' }}</td>
-  <td>{{ r.weight_votes|default:'N/A' }}</td>
-  <td>{{ r.owned_by_str }}</td>
-  <td>{{ r.type }}</td>
-  <td>{{ r.families_str }}</td>
-  <td>{{ r.categories_str }}</td>
-  <td>{{ r.mechanics_str }}</td>
-  <td>{{ r.player_count }}</td>
-  <td>{{ r.best_pct }}</td>
-  <td>{{ r.best_votes }}</td>
-  <td>{{ r.rec_pct }}</td>
-  <td>{{ r.rec_votes }}</td>
-  <td>{{ r.not_pct }}</td>
-  <td>{{ r.not_votes }}</td>
-  <td>{{ r.total_votes }}</td>
-  <td>{{ r.pc_score_unadj }}</td>
-  <td>{{ r.pc_score }}</td>
-  <td>{{ r.playable }}</td>
+  {% for cell in r.cells %}
+  <td data-column="{{ cell.key }}">
+    {% if cell.key == 'title' %}
+      <a href="{% url 'game_detail' bgg_id=r.game_id %}">{{ r.title }}</a>
+    {% elif cell.key == 'owners' %}
+      {% if r.people %}<span>Copy: {{ r.people|join:', ' }}</span>{% endif %}
+      {% if r.platforms %}<span class="platform-note">Online: {{ r.platforms|join:', ' }}</span>{% endif %}
+      {% if not r.people and not r.platforms %}<span class="note">Not tracked</span>{% endif %}
+    {% elif cell.key == 'total_votes' %}
+      {{ r.total_votes }}{% if r.total_votes < 20 %}<span class="sample-note">Small sample</span>{% endif %}
+    {% elif cell.value is None %}<span class="note">Unknown</span>
+    {% else %}{{ cell.value }}{% endif %}
+  </td>
+  {% endfor %}
 </tr>
 {% empty %}
-<tr>
-  <td colspan="25">No data yet. Adjust filters or run a refresh on the home page.</td>
-</tr>
+<tr><td colspan="25">No matching poll rows. Try fewer filters, or <a href="{% url 'games_missing' %}">browse games without polls</a>.</td></tr>
 {% endfor %}

@@ -137,7 +137,23 @@
 .results-card {
   display: grid;
   gap: 1.2rem;
+  min-width: 0;
 }
+
+[hidden] { display: none !important; }
+.advanced-filters summary, .score-explainer summary { cursor: pointer; font-weight: 600; }
+.advanced-content { padding-top: 1rem; }
+.view-options, .active-filters { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.active-filters:empty, #resultsNotice:empty { display: none; }
+.filter-chip { background: var(--surface-muted); padding: .3rem .6rem; border-radius: 12px; font-size: .85rem; }
+.platform-note, .sample-note { display: block; font-size: .8rem; color: var(--text-muted); }
+.sample-note { color: #875300; }
+.compact-table:not(.show-details) [data-column]:not([data-column="score_factor"]):not([data-column="title"]):not([data-column="player_count"]):not([data-column="avg_rating"]):not([data-column="weight"]):not([data-column="owners"]):not([data-column="total_votes"]) { display: none; }
+.compact-table { table-layout: auto; min-width: 680px; }
+.compact-table td[data-column="title"] { min-width: 160px; }
+.compact-table td { vertical-align: top; }
+.pager-btn:disabled { opacity: .4; cursor: default; }
+.table-wrapper:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 
 .table-toolbar {
   display: flex;
@@ -215,4 +231,15 @@ details#mechanicsMore summary {
     position: static;
     max-height: none;
   }
+  .filters-grid { grid-template-columns: 1fr 1fr; gap: .65rem; }
+  .availability-filter, .advanced-filters, .form-actions, #catalogFacets { grid-column: 1 / -1; }
+  .advanced-content { grid-template-columns: 1fr; }
+  .owner-cloud { max-height: 110px; overflow-y: auto; }
+  .page-lede { display: block; margin-bottom: .8rem; }
+  .page-lede .intro h1 { font-size: 1.6rem; margin-bottom: .35rem; }
+  .page-lede .intro p { display: none; }
+  .counts-pill { min-width: 0; padding: .45rem .65rem; margin-top: .4rem; }
+  .catalog-layout { gap: .9rem; }
+  .results-card { gap: .65rem; }
+  .filters-card { padding: .8rem; }
 }

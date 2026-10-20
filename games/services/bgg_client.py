@@ -480,8 +480,6 @@ class BGGClient:
                 if poll is not None:
                     for results in poll.findall('results'):
                         numplayers = results.get('numplayers') or ''
-                        if '+' in numplayers:
-                            continue
                         best = rec = notrec = 0
                         for res in results.findall('result'):
                             label = res.get('value')
