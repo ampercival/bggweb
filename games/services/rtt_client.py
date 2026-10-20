@@ -159,7 +159,7 @@ class RTTClient:
                 bgg_id = self.fetch_game_bgg_id(slug)
             except requests.RequestException as exc:
                 log.warning("RTT: failed to fetch %s: %s", slug, exc)
-                bgg_id = None
+                raise RuntimeError("RTT scrape was incomplete; existing availability was preserved.") from exc
             if bgg_id:
                 results.append({"bgg_id": str(bgg_id), "slug": slug, "title": title})
             else:

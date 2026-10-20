@@ -24,6 +24,11 @@ BGA_FAMILY_ID = "70360"
 
 
 
+def _validate_xml(root):
+    if root.tag != 'items' or root.find('.//error') is not None:
+        raise RuntimeError("BoardGameGeek returned an error instead of game data.")
+
+
 class BGGClient:
     def __init__(self, session: requests.Session | None = None, throttle_sec: float | None = None, detail_throttle_sec: float | None = None):
         self.session = session or requests.Session()
@@ -230,8 +235,11 @@ class BGGClient:
                     continue
                 break
             root = ET.fromstring(resp.content)
+            _validate_xml(root)
             for item in root.findall('item'):
                 gid = item.get('objectid')
+                if not gid:
+                    raise RuntimeError('Collection item is missing its game ID.')
                 name_el = item.find('name')
                 title = name_el.text if name_el is not None else ''
                 stats = item.find('stats')
@@ -294,6 +302,7 @@ class BGGClient:
                 "BGG family response was not valid XML (check BGG_API_TOKEN and the family id)."
             ) from exc
 
+        _validate_xml(root)
         results: List[Dict[str, str]] = []
         seen: set[str] = set()
         for item in root.findall("item"):
@@ -371,6 +380,9 @@ class BGGClient:
                             f"BGG is still preparing game details after multiple attempts: {snippet or 'please retry later.'}"
                         )
                     continue
+            _validate_xml(root)
+            if {item.get('id') for item in items} != set(chunk):
+                raise RuntimeError("Incomplete BGG details response; please retry later.")
             queue_retries = 0
 
             chunk_details: Dict[str, Dict] = {}

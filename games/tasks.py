@@ -2,6 +2,7 @@ import time
 import logging
 from collections import defaultdict
 from django.utils import timezone
+from django.db import transaction
 from background_task import background
 
 from .models import (
@@ -19,6 +20,7 @@ from .models import (
 from .services.bgg_client import BGGClient, BGA_FAMILY_ID
 from .services.rtt_client import RTTClient
 from .utils import recompute_owned_flags
+from .db import bulk_update
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +35,12 @@ PLATFORM_OWNER_LABELS = {RTT_OWNER_LABEL, BGA_OWNER_LABEL}
 
 class JobCancelled(Exception):
     pass
+
+
+def _validate_details(ids, details, counts):
+    expected = {str(gid) for gid in ids}
+    if expected - set(details) or expected - set(counts):
+        raise RuntimeError("Incomplete game details; existing catalog was preserved. Please retry.")
 
 
 def _to_float(value):
@@ -94,19 +102,25 @@ def _apply_relations(ids, game_objs, details_map):
     family_map = _collect_vocab(Family, family_names)
     mechanic_map = _collect_vocab(Mechanic, mechanic_names)
 
-    for gid in ids:
-        detail = details_map.get(gid)
-        if not detail:
-            continue
-        game = game_objs.get(gid)
-        if not game:
-            continue
-        cat_objs = [category_map[name] for name in (detail.get("Categories") or []) if name in category_map]
-        fam_objs = [family_map[name] for name in (detail.get("Families") or []) if name in family_map]
-        mech_objs = [mechanic_map[name] for name in (detail.get("Mechanics") or []) if name in mechanic_map]
-        game.categories.set(cat_objs)
-        game.families.set(fam_objs)
-        game.mechanics.set(mech_objs)
+    for relation, vocab, key in (
+        ('categories', category_map, 'Categories'),
+        ('families', family_map, 'Families'),
+        ('mechanics', mechanic_map, 'Mechanics'),
+    ):
+        through = getattr(Game, relation).through
+        target_field = through._meta.get_fields()[2].name
+        complete_ids = [game_objs[gid].pk for gid in ids
+                        if gid in game_objs and gid in details_map]
+        through.objects.filter(game_id__in=complete_ids).delete()
+        links = []
+        for gid in ids:
+            if gid not in game_objs or gid not in details_map:
+                continue
+            for name in set(details_map[gid].get(key) or []):
+                if name in vocab:
+                    links.append(through(game_id=game_objs[gid].pk,
+                                         **{target_field + '_id': vocab[name].pk}))
+        through.objects.bulk_create(links, batch_size=500, ignore_conflicts=True)
 
 
 def _sync_games(desired_ids, games_map, details_map, now):
@@ -129,6 +143,8 @@ def _sync_games(desired_ids, games_map, details_map, now):
         # owned_by fields are set later by _sync_ownership from the OwnedGame rows.
         if gid in existing_games:
             game = existing_games[gid]
+            before = (game.title, game.type, game.year, game.avg_rating, game.num_voters,
+                      game.weight, game.weight_votes, game.bgg_rank)
             game.title = info.get("Game Title") or game.title
             game.type = game_type
             game.year = year
@@ -138,7 +154,10 @@ def _sync_games(desired_ids, games_map, details_map, now):
             game.weight_votes = weight_votes
             game.bgg_rank = bgg_rank
             game.updated_at = now
-            games_to_update.append(game)
+            after = (game.title, game.type, game.year, game.avg_rating, game.num_voters,
+                     game.weight, game.weight_votes, game.bgg_rank)
+            if before != after:
+                games_to_update.append(game)
         else:
             games_to_create.append(
                 Game(
@@ -160,13 +179,12 @@ def _sync_games(desired_ids, games_map, details_map, now):
     if games_to_create:
         Game.objects.bulk_create(games_to_create, batch_size=500)
     if games_to_update:
-        Game.objects.bulk_update(
+        bulk_update(Game,
             games_to_update,
             [
                 "title", "type", "year", "avg_rating", "num_voters",
                 "weight", "weight_votes", "bgg_rank", "updated_at",
             ],
-            batch_size=500,
         )
         
     # Re-fetch or use existing to update M2M relations
@@ -209,6 +227,9 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
             seen_counts.add(count)
             existing = rec_map.get(gid, {}).get(count)
             if existing:
+                before = (existing.best_pct, existing.best_votes, existing.rec_pct,
+                          existing.rec_votes, existing.notrec_pct, existing.notrec_votes,
+                          existing.vote_count)
                 existing.best_pct = best_pct
                 existing.best_votes = best_votes
                 existing.rec_pct = rec_pct
@@ -216,7 +237,9 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
                 existing.notrec_pct = notrec_pct
                 existing.notrec_votes = notrec_votes
                 existing.vote_count = vote_count
-                recs_to_update.append(existing)
+                if before != (best_pct, best_votes, rec_pct, rec_votes,
+                              notrec_pct, notrec_votes, vote_count):
+                    recs_to_update.append(existing)
             else:
                 recs_to_create.append(
                     PlayerCountRecommendation(
@@ -239,10 +262,9 @@ def _sync_player_counts(desired_ids, game_objs, player_counts):
     if recs_to_delete:
         PlayerCountRecommendation.objects.filter(id__in=recs_to_delete).delete()
     if recs_to_update:
-        PlayerCountRecommendation.objects.bulk_update(
+        bulk_update(PlayerCountRecommendation,
             recs_to_update,
             ["best_pct", "best_votes", "rec_pct", "rec_votes", "notrec_pct", "notrec_votes", "vote_count"],
-            batch_size=500,
         )
     if recs_to_create:
         PlayerCountRecommendation.objects.bulk_create(recs_to_create, batch_size=500)
@@ -251,6 +273,7 @@ def _sync_ownership(collection_owned_map, game_objs, now):
     # Update OwnedGame and Collection
     # Also updates Game.owned and Game.owned_by flags
     
+    affected_ids = set()
     # 1. Update Collections and OwnedGame links
     users_with_games = set()
     if collection_owned_map:
@@ -266,6 +289,7 @@ def _sync_ownership(collection_owned_map, game_objs, now):
 
             existing_owned = OwnedGame.objects.filter(collection=coll).select_related("game")
             existing_owned_map = {og.game.bgg_id: og for og in existing_owned if og.game_id}
+            affected_ids.update(og.game_id for og in existing_owned_map.values())
             
             owned_to_create = []
             for gid in target_ids:
@@ -280,6 +304,8 @@ def _sync_ownership(collection_owned_map, game_objs, now):
             to_remove = [og.id for gid, og in existing_owned_map.items() if gid not in target_ids]
             if to_remove:
                 OwnedGame.objects.filter(id__in=to_remove).delete()
+
+    recompute_owned_flags(affected_ids)
 
     # 2. Update Denormalized Flags on Game (owned, owned_by)
     # Re-query ownership for all games involved to ensure correctness
@@ -311,6 +337,7 @@ def _sync_ownership(collection_owned_map, game_objs, now):
         Game.objects.bulk_update(games_to_update, ["owned", "owned_by", "updated_at"], batch_size=500)
 
 
+@transaction.atomic
 def _sync_catalog(
     games_map,
     details_map,
@@ -369,10 +396,18 @@ def _sync_catalog(
                 progress_callback(val)
                 last_progress = val
 
+    if check_cancelled:
+        check_cancelled()
+
+    # Preserve real collections when fetching only the ranked catalog.
+    # Full refresh purges untracked collections inside its apply transaction.
+    protected_ids = OwnedGame.objects.exclude(
+        collection__username__in=PLATFORM_OWNER_LABELS
+    ).values_list('game__bgg_id', flat=True)
     # 1. Prune
     if prune:
         if desired_ids:
-            cnt = Game.objects.exclude(bgg_id__in=desired_ids).delete()[0]
+            cnt = Game.objects.exclude(bgg_id__in=desired_ids).exclude(bgg_id__in=protected_ids).delete()[0]
         else:
             cnt = Game.objects.all().delete()[0]
         report_units(cnt)
@@ -589,10 +624,9 @@ def _sync_refresh_chunk(
     if games_to_create:
         Game.objects.bulk_create(games_to_create, batch_size=500)
     if games_to_update:
-        Game.objects.bulk_update(
+        bulk_update(Game,
             games_to_update,
             ['title', 'type', 'year', 'avg_rating', 'num_voters', 'weight', 'weight_votes', 'bgg_rank', 'owned', 'owned_by', 'updated_at'],
-            batch_size=500,
         )
 
     game_objs = Game.objects.in_bulk(normalized_ids, field_name='bgg_id')
@@ -682,13 +716,15 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
 
         log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        _validate_details(ids, details, pcounts)
         check_cancel()
         log.info('Job %s: details fetched for Top N job', job.id)
 
-        _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
+        with transaction.atomic():
+            _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
+            sync_platform_collections()
+            check_cancel()
         log.info('Job %s: catalog sync complete for Top N', job.id)
-
-        sync_platform_collections()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -739,14 +775,17 @@ def run_fetch_collection(job_id: int, username: str):
 
         log.info('Job %s: fetching details for %s collection games (batch=%s)', job.id, len(ids), 20)
         details, pcounts = client.fetch_details_batches(ids, batch_size=20)
+        _validate_details(ids, details, pcounts)
         check_cancel()
         log.info('Job %s: details fetched for collection job', job.id)
 
         collection_map = {username: set(ids)}
-        _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map, prune=False, check_cancelled=check_cancel)
+        with transaction.atomic():
+            _sync_catalog(combined, details, pcounts, collection_owned_map=collection_map,
+                          prune=False, check_cancelled=check_cancel)
+            sync_platform_collections()
+            check_cancel()
         log.info('Job %s: catalog sync complete for collection job', job.id)
-
-        sync_platform_collections()
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -777,7 +816,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
     job.total = n
 
     normalized_usernames = sorted({(u or '').strip() for u in (usernames or []) if (u or '').strip()})
-    _purge_untracked_collections(normalized_usernames)
     params = dict(job.params or {})
     params['batch_size'] = batch_size
     if ranks_zip_url:
@@ -952,8 +990,6 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         else:
             collections_map = {}
 
-        owners_lookup = _build_owners_lookup(collections_map)
-        collection_cache = _ensure_collections(collections_map.keys())
         all_ids = [str(gid) for gid in combined.keys()]
 
         params_local = job.params or {}
@@ -1012,16 +1048,13 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         log.info('Job %s: fetching details for %s games (batch=%s)', job.id, len(all_ids), batch_size)
         detail_stream = client.stream_details_batches(all_ids, batch_size=batch_size, on_progress=on_details_progress)
 
+        staged_details, staged_counts = {}, {}
         for chunk_ids, details_chunk, pcounts_chunk in detail_stream:
-            _sync_refresh_chunk(
-                chunk_ids,
-                combined,
-                details_chunk,
-                pcounts_chunk,
-                owners_lookup,
-                collection_cache,
-            )
+            _validate_details(chunk_ids, details_chunk, pcounts_chunk)
+            staged_details.update(details_chunk)
+            staged_counts.update(pcounts_chunk)
             check_cancel()
+        _validate_details(all_ids, staged_details, staged_counts)
 
         log.info('Job %s: details phase completed', job.id)
 
@@ -1053,24 +1086,20 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
             job.params = params_local
             job.save(update_fields=["params"])
 
-        _prune_games_after_refresh(all_ids)
-        log.info('Job %s: catalog cleanup complete for refresh', job.id)
-
-        params_local = job.params or {}
-        if "cleanup" in params_local.get("phases", {}):
-            params_local["phases"]["cleanup"].update(
-                {
-                    "status": "done",
-                    "progress": 1,
-                    "total": 1,
-                    "finished_at": timezone.now().isoformat(),
-                }
-            )
-            job.params = params_local
-            job.save(update_fields=["params"])
-
-        # Re-tag platform games (RTT, BGA) now that the catalog has been rebuilt.
-        sync_platform_collections()
+        check_cancel()
+        # All remote work finishes before acquiring the database write lock.
+        with transaction.atomic():
+            _purge_untracked_collections(normalized_usernames)
+            _sync_catalog(combined, staged_details, staged_counts,
+                          collection_owned_map=collections_map, prune=True,
+                          check_cancelled=check_cancel)
+            sync_platform_collections()
+            check_cancel()
+        job.params["phases"]["cleanup"].update(
+            status="done", progress=1, total=1,
+            finished_at=timezone.now().isoformat(),
+        )
+        job.params["current_phase"] = "done"
 
         job.status = "done"
         job.finished_at = timezone.now()
@@ -1134,25 +1163,28 @@ def run_scrape_rtt(job_id: int):
             by_id.setdefault(str(g["bgg_id"]), g)
         scraped_ids = set(by_id.keys())
 
-        existing = RTTGame.objects.in_bulk(field_name="bgg_id")
-        to_create = []
-        to_update = []
-        for bid, g in by_id.items():
-            row = existing.get(bid)
-            if row:
-                row.slug = g["slug"]
-                row.title = g["title"]
-                to_update.append(row)
-            else:
-                to_create.append(RTTGame(bgg_id=bid, slug=g["slug"], title=g["title"]))
-        if to_create:
-            RTTGame.objects.bulk_create(to_create, ignore_conflicts=True)
-        if to_update:
-            RTTGame.objects.bulk_update(to_update, ["slug", "title"], batch_size=500)
-        # Drop games no longer on Rally the Troops.
-        RTTGame.objects.exclude(bgg_id__in=scraped_ids).delete()
+        with transaction.atomic():
+            existing = RTTGame.objects.in_bulk(field_name="bgg_id")
+            to_create = []
+            to_update = []
+            for bid, g in by_id.items():
+                row = existing.get(bid)
+                if row:
+                    row.slug = g["slug"]
+                    row.title = g["title"]
+                    to_update.append(row)
+                else:
+                    to_create.append(RTTGame(bgg_id=bid, slug=g["slug"], title=g["title"]))
+            if to_create:
+                RTTGame.objects.bulk_create(to_create, ignore_conflicts=True)
+            if to_update:
+                RTTGame.objects.bulk_update(to_update, ["slug", "title"], batch_size=500)
+            # Drop games no longer on Rally the Troops.
+            RTTGame.objects.exclude(bgg_id__in=scraped_ids).delete()
 
-        sync_rtt_collection()
+            sync_rtt_collection()
+
+            check_cancel()
 
         job.total = len(scraped_ids)
         job.progress = len(scraped_ids)
@@ -1217,26 +1249,29 @@ def run_fetch_bga(job_id: int, family_id: str | None = None):
             by_id.setdefault(str(g["bgg_id"]), g)
         member_ids = set(by_id.keys())
 
-        existing = BGAGame.objects.in_bulk(field_name="bgg_id")
-        to_create = []
-        to_update = []
-        for bid, g in by_id.items():
-            row = existing.get(bid)
-            title = g.get("title") or ""
-            if row:
-                if title and row.title != title:
-                    row.title = title
-                    to_update.append(row)
-            else:
-                to_create.append(BGAGame(bgg_id=bid, title=title))
-        if to_create:
-            BGAGame.objects.bulk_create(to_create, ignore_conflicts=True)
-        if to_update:
-            BGAGame.objects.bulk_update(to_update, ["title"], batch_size=500)
-        # Drop games no longer in the family.
-        BGAGame.objects.exclude(bgg_id__in=member_ids).delete()
+        with transaction.atomic():
+            existing = BGAGame.objects.in_bulk(field_name="bgg_id")
+            to_create = []
+            to_update = []
+            for bid, g in by_id.items():
+                row = existing.get(bid)
+                title = g.get("title") or ""
+                if row:
+                    if title and row.title != title:
+                        row.title = title
+                        to_update.append(row)
+                else:
+                    to_create.append(BGAGame(bgg_id=bid, title=title))
+            if to_create:
+                BGAGame.objects.bulk_create(to_create, ignore_conflicts=True)
+            if to_update:
+                BGAGame.objects.bulk_update(to_update, ["title"], batch_size=500)
+            # Drop games no longer in the family.
+            BGAGame.objects.exclude(bgg_id__in=member_ids).delete()
 
-        sync_bga_collection()
+            sync_bga_collection()
+
+            check_cancel()
 
         job.total = len(member_ids)
         job.progress = len(member_ids)

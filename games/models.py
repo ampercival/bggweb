@@ -129,6 +129,9 @@ class OwnedGame(models.Model):
     collection = models.ForeignKey(Collection, on_delete=models.CASCADE)
     game = models.ForeignKey(Game, on_delete=models.CASCADE)
 
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['collection', 'game'], name='unique_collection_game')]
+
 
 class FetchJob(models.Model):
     KIND_CHOICES = [
