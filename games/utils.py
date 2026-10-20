@@ -1,5 +1,8 @@
 from datetime import datetime
 from django.db.models import (
+    Case,
+    When,
+    IntegerField,
     Count,
     ExpressionWrapper,
     F,
@@ -13,6 +16,7 @@ from django.db.models import (
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from .models import Game, OwnedGame, PlayerCountRecommendation
+from .filters import normalize_filters
 
 
 def recompute_owned_flags(game_ids):
@@ -47,7 +51,7 @@ def recompute_owned_flags(game_ids):
 
 class GameFilter:
     def __init__(self, request_get):
-        self.params = request_get
+        self.params = normalize_filters(request_get)
         self.year_slider_min = 1900
         self.year_slider_max = datetime.now().year
 
@@ -165,10 +169,13 @@ class GameFilter:
             )
         )
 
+        qs = qs.annotate(playable_order=Case(When(pc_score_unadj__gte=150, then=Value(1)),
+                                             default=Value(0), output_field=IntegerField()))
         # Sorting
         sort = self.params.get('sort', 'score_factor')
         direction = self.params.get('dir', 'desc')
         order_map = {
+            'playable': F('playable_order'),
             'title': F('game__title'),
             'game_id': F('game__bgg_id'),
             'year': F('year_int'),
@@ -194,7 +201,7 @@ class GameFilter:
         order_expr = order_map.get(sort, F('score_factor'))
         ordering = OrderBy(order_expr, descending=(direction == 'desc'), nulls_last=True)
         secondary_order = OrderBy(F('game__title'), nulls_last=True)
-        qs = qs.order_by(ordering, secondary_order)
+        qs = qs.order_by(ordering, secondary_order, 'game__bgg_id', 'count')
 
         return qs, qs_pre_category, pc_range, pc_min
 
@@ -204,17 +211,17 @@ class GameFilter:
         fam_counts = {}
         mec_counts = {}
         
-        for row in qs.values('game__categories__name').exclude(game__categories__name__isnull=True).annotate(count=Count('id')):
+        for row in qs.values('game__categories__name').exclude(game__categories__name__isnull=True).annotate(count=Count('id', distinct=True)):
             name = row['game__categories__name']
             if name:
                 cat_counts[name] = row['count']
 
-        for row in qs.values('game__families__name').exclude(game__families__name__isnull=True).annotate(count=Count('id')):
+        for row in qs.values('game__families__name').exclude(game__families__name__isnull=True).annotate(count=Count('id', distinct=True)):
             name = row['game__families__name']
             if name:
                 fam_counts[name] = row['count']
 
-        for row in qs.values('game__mechanics__name').exclude(game__mechanics__name__isnull=True).annotate(count=Count('id')):
+        for row in qs.values('game__mechanics__name').exclude(game__mechanics__name__isnull=True).annotate(count=Count('id', distinct=True)):
             name = row['game__mechanics__name']
             if name:
                 mec_counts[name] = row['count']

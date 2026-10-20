@@ -1,293 +1,124 @@
-// Games catalog: filtering, sorting, and paging for the live results table.
-// Server-injected values (rows endpoint, default sort/dir, year-slider bounds)
-// are read from data-* attributes on #filtersForm so this file stays static.
+// Canonical form state drives rows, shareable URLs and filtered exports.
 (function () {
   "use strict";
+  const form = document.getElementById('filtersForm');
+  if (!form) return;
+  const loading = document.getElementById('loadingIndicator');
+  const notice = document.getElementById('resultsNotice');
+  let sequence = 0, controller = null, timer = null;
+  const sort = form.elements.namedItem('sort');
+  const direction = form.elements.namedItem('dir');
+  const page = form.elements.namedItem('page');
 
-  var filtersForm = document.getElementById('filtersForm');
-  var cfg = (filtersForm && filtersForm.dataset) || {};
-  var ROWS_URL = cfg.rowsUrl || '/games/rows/';
-  var DEFAULT_SORT = cfg.defaultSort || 'score_factor';
-  var DEFAULT_DIR = cfg.defaultDir || 'desc';
-  var YEAR_MIN = cfg.yearMin || '';
-  var YEAR_MAX = cfg.yearMax || '';
-
-  function clampRanges(minEl, maxEl) {
-    const minv = parseFloat(minEl.value);
-    const maxv = parseFloat(maxEl.value);
-    if (minv > maxv) {
-      maxEl.value = minv;
-    }
+  function labels() {
+    ['avg_rating', 'weight', 'year'].forEach(key => {
+      const low = document.getElementById('min_' + key);
+      const high = document.getElementById('max_' + key);
+      if (Number(low.value) > Number(high.value)) high.value = low.value;
+      [low, high].forEach(input => {
+        document.getElementById(input.id + '_val').textContent = key === 'year' ? input.value : Number(input.value).toFixed(1);
+      });
+    });
   }
-  function updateLabels() {
-    const minAR = document.getElementById('min_avg_rating');
-    const maxAR = document.getElementById('max_avg_rating');
-    const minAW = document.getElementById('min_weight');
-    const maxAW = document.getElementById('max_weight');
-    const minY = document.getElementById('min_year');
-    const maxY = document.getElementById('max_year');
-    if (minAR && maxAR) {
-      clampRanges(minAR, maxAR);
-      document.getElementById('min_avg_rating_val').textContent = parseFloat(minAR.value).toFixed(1);
-      document.getElementById('max_avg_rating_val').textContent = parseFloat(maxAR.value).toFixed(1);
-    }
-    if (minAW && maxAW) {
-      clampRanges(minAW, maxAW);
-      document.getElementById('min_weight_val').textContent = parseFloat(minAW.value).toFixed(1);
-      document.getElementById('max_weight_val').textContent = parseFloat(maxAW.value).toFixed(1);
-    }
-    if (minY && maxY) {
-      clampRanges(minY, maxY);
-      document.getElementById('min_year_val').textContent = parseInt(minY.value);
-      document.getElementById('max_year_val').textContent = parseInt(maxY.value);
-    }
+  function indicators() {
+    document.querySelectorAll('th a[data-sort]').forEach(link => {
+      const active = link.dataset.sort === sort.value;
+      link.querySelector('.sort-arrow').textContent = active ? (direction.value === 'desc' ? ' ▼' : ' ▲') : '';
+      link.closest('th').setAttribute('aria-sort', active ? (direction.value === 'desc' ? 'descending' : 'ascending') : 'none');
+    });
   }
-  ['min_avg_rating', 'max_avg_rating', 'min_weight', 'max_weight', 'min_year', 'max_year'].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('input', updateLabels);
-  });
-  updateLabels();
-
-  var loadingIndicator = document.getElementById('loadingIndicator');
-
-  function buildQuery() {
-    var form = document.getElementById('filtersForm');
-    var fd = new FormData(form);
-    var params = new URLSearchParams();
-    for (var pair of fd.entries()) {
-      var key = pair[0];
-      var value = pair[1];
-      if (value === null || value === '') continue;
-      if (key === 'categories' || key === 'owners') {
-        params.append(key, value);
-      } else {
-        params.set(key, value);
-      }
-    }
-    return params.toString();
+  function searchFacets(id, list, more) {
+    const input = document.getElementById(id);
+    if (!input) return;
+    const query = input.value.toLowerCase();
+    document.querySelectorAll('#' + list + ' .cat-item').forEach(item => {
+      item.hidden = !item.dataset.name.includes(query);
+    });
+    if (query) document.getElementById(more)?.setAttribute('open', '');
   }
-
-  async function updateRows() {
-    var qs = buildQuery();
-    var url = new URL(window.location.origin + ROWS_URL);
-    url.search = qs;
-    if (loadingIndicator) loadingIndicator.classList.add('is-active');
+  async function update(current) {
+    const query = new URLSearchParams(new FormData(form));
+    controller = new AbortController();
+    loading?.classList.add('is-active');
+    loading?.setAttribute('aria-hidden', 'false');
+    document.getElementById('rows').setAttribute('aria-busy', 'true');
     try {
-      var resp = await fetch(url, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
-      if (!resp.ok) { showLoadError(); return; }
-      var data = await resp.json();
-      var tbody = document.getElementById('rows');
-      if (tbody) tbody.innerHTML = data.html;
-      var countEl = document.getElementById('rowsCount');
-      if (countEl) countEl.textContent = data.count;
-      var totalGamesEl = document.getElementById('totalGames');
-      if (totalGamesEl && Object.prototype.hasOwnProperty.call(data, 'total_games') && data.total_games != null) {
-        totalGamesEl.textContent = data.total_games;
+      const response = await fetch(form.dataset.rowsUrl + '?' + query, {
+        headers: {'x-requested-with': 'XMLHttpRequest'}, signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('Request failed');
+      const data = await response.json();
+      if (current !== sequence) return;
+      const facets = document.getElementById('catalogFacets');
+      const saved = {};
+      ['categoriesSearch', 'mechanicsSearch'].forEach(id => saved[id] = document.getElementById(id)?.value || '');
+      const opened = ['categoriesMore', 'mechanicsMore'].filter(id => document.getElementById(id)?.open);
+      if (facets && data.facets_html) facets.innerHTML = data.facets_html;
+      Object.entries(saved).forEach(([id, value]) => { if (document.getElementById(id)) document.getElementById(id).value = value; });
+      opened.forEach(id => document.getElementById(id)?.setAttribute('open', ''));
+      searchFacets('categoriesSearch', 'categoriesList', 'categoriesMore');
+      searchFacets('mechanicsSearch', 'mechanicsList', 'mechanicsMore');
+      document.getElementById('rows').innerHTML = data.html;
+      for (const [id, key] of [['rowsCount', 'count'], ['rangeStart', 'start'], ['rangeEnd', 'end'], ['totalGames', 'total_games']]) {
+        document.getElementById(id).textContent = data[key];
       }
-      if (sortInput && dirInput) {
-        updateSortIndicators(sortInput.value || 'score_factor', dirInput.value || 'desc');
+      page.value = data.page;
+      document.querySelectorAll('.js-page-display').forEach(el => el.textContent = data.page);
+      document.querySelectorAll('.js-pages-total').forEach(el => el.textContent = data.num_pages);
+      document.querySelectorAll('.js-prev').forEach(el => el.disabled = data.page <= 1);
+      document.querySelectorAll('.js-next').forEach(el => el.disabled = data.page >= data.num_pages);
+      const canonical = data.query || query.toString();
+      window.history.replaceState({}, '', window.location.pathname + '?' + canonical);
+      document.getElementById('filteredExport').href = '/export.csv?' + canonical;
+      notice.textContent = data.count + ' matching game/player-count rows.';
+      indicators();
+    } catch (error) {
+      if (current === sequence && error.name !== 'AbortError') {
+        notice.textContent = 'Could not update results. Your previous results are still shown. Try Apply filters again.';
       }
-      var rs = document.getElementById('rangeStart'); if (rs) rs.textContent = data.start;
-      var re = document.getElementById('rangeEnd'); if (re) re.textContent = data.end;
-      document.querySelectorAll('.js-page-display').forEach(function (el) { el.textContent = data.page; });
-      document.querySelectorAll('.js-pages-total').forEach(function (el) { el.textContent = data.num_pages; });
-      var pageUrl = new URL(window.location.href);
-      pageUrl.search = qs;
-      window.history.replaceState({}, '', pageUrl);
-    } catch (e) {
-      showLoadError();
     } finally {
-      if (loadingIndicator) loadingIndicator.classList.remove('is-active');
+      if (current === sequence) {
+        loading?.classList.remove('is-active');
+        loading?.setAttribute('aria-hidden', 'true');
+        document.getElementById('rows').setAttribute('aria-busy', 'false');
+      }
     }
   }
-
-  function showLoadError() {
-    var tbody = document.getElementById('rows');
-    if (tbody) {
-      tbody.innerHTML = '<tr><td colspan="25" style="color:#b91c1c;">Could not update results. Check your connection and try again.</td></tr>';
+  function schedule(delay = 250) {
+    sequence += 1;
+    if (controller) controller.abort();
+    clearTimeout(timer);
+    const current = sequence;
+    timer = setTimeout(() => update(current), delay);
+  }
+  form.addEventListener('submit', event => { event.preventDefault(); schedule(0); });
+  form.addEventListener('input', event => {
+    if (event.target.id === 'categoriesSearch') { searchFacets('categoriesSearch', 'categoriesList', 'categoriesMore'); return; }
+    if (event.target.id === 'mechanicsSearch') { searchFacets('mechanicsSearch', 'mechanicsList', 'mechanicsMore'); return; }
+    if (event.target.type === 'range') labels();
+    page.value = '1'; schedule();
+  });
+  form.addEventListener('change', event => {
+    if (['categoriesSearch', 'mechanicsSearch'].includes(event.target.id)) return;
+    page.value = '1'; schedule(0);
+  });
+  form.addEventListener('click', event => {
+    const clears = {clearOwners: 'owners', clearCategories: 'categories', clearMechanics: 'mechanics'};
+    if (clears[event.target.id]) {
+      form.querySelectorAll('[name="' + clears[event.target.id] + '"]').forEach(el => el.checked = false);
+      page.value = '1'; schedule(0);
     }
-  }
-
-  var form = document.getElementById('filtersForm');
-  var timer = null;
-  function submitDebounced(delay) {
-    if (delay === void 0) { delay = 400; }
-    if (!form) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(function () {
-      updateRows();
-    }, delay);
-  }
-
-  if (form) {
-    form.querySelectorAll('select, input[type="checkbox"]').forEach(function (el) {
-      el.addEventListener('change', function () { submitDebounced(10); });
-    });
-    form.querySelectorAll('input[type="text"]:not(#categoriesSearch):not(#mechanicsSearch), input[type="number"], input[type="range"]').forEach(function (el) {
-      el.addEventListener('input', function () { submitDebounced(400); });
-    });
-    form.querySelectorAll('input[name="q"], input[type="checkbox"][name="owners"], select[name="type"], select[name="playable"], select[name="player_count"], input[type="checkbox"][name="categories"], input[type="checkbox"][name="mechanics"], input[name="min_year"], input[name="max_year"], input[name="min_avg_rating"], input[name="max_avg_rating"], input[name="min_weight"], input[name="max_weight"], input[name="min_voters"]').forEach(function (el) {
-      el.addEventListener('change', function () { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
-      el.addEventListener('input', function () { var p = document.getElementById('page_input'); if (p) p.value = '1'; });
-    });
-  }
-
-  var headerLinks = document.querySelectorAll('th a[data-sort]');
-  var sortInput = form ? form.querySelector('[name="sort"]') : null;
-  var dirInput = form ? form.querySelector('[name="dir"]') : null;
-
-  function updateSortIndicators(currentSort, currentDir) {
-    headerLinks.forEach(function (link) {
-      var arrow = link.querySelector('.sort-arrow');
-      var th = link.closest('th');
-      if (link.dataset.sort === currentSort) {
-        if (arrow) arrow.textContent = currentDir === 'desc' ? ' ▼' : ' ▲';
-        link.dataset.nextDir = currentDir === 'desc' ? 'asc' : 'desc';
-        if (th) th.setAttribute('aria-sort', currentDir === 'desc' ? 'descending' : 'ascending');
-      } else {
-        if (arrow) arrow.textContent = '';
-        link.dataset.nextDir = 'desc';
-        if (th) th.setAttribute('aria-sort', 'none');
-      }
-    });
-  }
-
-  if (form && sortInput && dirInput) {
-    updateSortIndicators(sortInput.value || DEFAULT_SORT, dirInput.value || DEFAULT_DIR);
-  } else {
-    updateSortIndicators(DEFAULT_SORT, DEFAULT_DIR);
-  }
-
-  headerLinks.forEach(function (link) {
-    link.addEventListener('click', function (event) {
-      if (!form || !sortInput || !dirInput) {
-        return;
-      }
-      event.preventDefault();
-      var sortKey = link.dataset.sort;
-      var nextDir = link.dataset.nextDir || (sortInput.value === sortKey && dirInput.value === 'desc' ? 'asc' : 'desc');
-      sortInput.value = sortKey;
-      dirInput.value = nextDir;
-      var pageInput = form.querySelector('[name="page"]');
-      if (pageInput) pageInput.value = '1';
-      updateSortIndicators(sortKey, nextDir);
-      submitDebounced(10);
-    });
+    if (event.target.id === 'resetDefaults') window.location.assign('/games/');
   });
-
-  var resetBtn = document.getElementById('resetDefaults');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', function () {
-      var formEl = resetBtn.closest('form');
-      if (!formEl) return;
-      formEl.querySelector('[name="q"]').value = '';
-      formEl.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function (cb) { cb.checked = false; });
-      formEl.querySelector('[name="type"]').value = 'all';
-      formEl.querySelector('[name="playable"]').value = 'playable';
-      formEl.querySelector('[name="player_count"]').value = 'all';
-      var minYear = formEl.querySelector('#min_year'); if (minYear) minYear.value = YEAR_MIN;
-      var maxYear = formEl.querySelector('#max_year'); if (maxYear) maxYear.value = YEAR_MAX;
-      var minAR = formEl.querySelector('#min_avg_rating'); if (minAR) minAR.value = '0';
-      var maxAR = formEl.querySelector('#max_avg_rating'); if (maxAR) maxAR.value = '10';
-      var minW = formEl.querySelector('#min_weight'); if (minW) minW.value = '0';
-      var maxW = formEl.querySelector('#max_weight'); if (maxW) maxW.value = '5';
-      var minV = formEl.querySelector('[name="min_voters"]'); if (minV) minV.value = '';
-      if (sortInput) sortInput.value = 'score_factor';
-      if (dirInput) dirInput.value = 'desc';
-      updateSortIndicators('score_factor', 'desc');
-      var p = formEl.querySelector('[name="page"]'); if (p) p.value = '1';
-      var ps = formEl.querySelector('[name="page_size"]'); if (ps) ps.value = '200';
-      document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function (cb) { cb.checked = false; });
-      document.querySelectorAll('input[type="checkbox"][name="mechanics"]').forEach(function (cb) { cb.checked = false; });
-      updateLabels();
-      updateRows();
-    });
-  }
-
-  var catSearch = document.getElementById('categoriesSearch');
-  if (catSearch) {
-    var catSearchTimer = null;
-    catSearch.addEventListener('input', function () {
-      if (catSearchTimer) clearTimeout(catSearchTimer);
-      catSearchTimer = setTimeout(function () {
-        var q = (catSearch.value || '').toLowerCase();
-        var items = document.querySelectorAll('#categoriesList .cat-item');
-        items.forEach(function (el) {
-          var name = el.getAttribute('data-name') || '';
-          el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
-        });
-        var more = document.getElementById('categoriesMore');
-        if (more) {
-          if (q) more.setAttribute('open', 'open');
-          else more.removeAttribute('open');
-        }
-      }, 200);
-    });
-  }
-  var clearOwnersBtn = document.getElementById('clearOwners');
-  if (clearOwnersBtn) {
-    clearOwnersBtn.addEventListener('click', function () {
-      document.querySelectorAll('input[type="checkbox"][name="owners"]').forEach(function (cb) { cb.checked = false; });
-      var p = document.getElementById('page_input'); if (p) p.value = '1';
-      submitDebounced(10);
-    });
-  }
-
-  var clearCats = document.getElementById('clearCategories');
-  if (clearCats) {
-    clearCats.addEventListener('click', function () {
-      document.querySelectorAll('input[type="checkbox"][name="categories"]').forEach(function (cb) { cb.checked = false; });
-      var p = document.getElementById('page_input'); if (p) p.value = '1';
-      submitDebounced(10);
-    });
-  }
-
-  var mecSearch = document.getElementById('mechanicsSearch');
-  if (mecSearch) {
-    var mecSearchTimer = null;
-    mecSearch.addEventListener('input', function () {
-      if (mecSearchTimer) clearTimeout(mecSearchTimer);
-      mecSearchTimer = setTimeout(function () {
-        var q = (mecSearch.value || '').toLowerCase();
-        var items = document.querySelectorAll('#mechanicsList .cat-item');
-        items.forEach(function (el) {
-          var name = el.getAttribute('data-name') || '';
-          el.style.display = name.indexOf(q) !== -1 ? 'inline-flex' : 'none';
-        });
-        var more = document.getElementById('mechanicsMore');
-        if (more) {
-          if (q) more.setAttribute('open', 'open');
-          else more.removeAttribute('open');
-        }
-      }, 200);
-    });
-  }
-  var clearMecs = document.getElementById('clearMechanics');
-  if (clearMecs) {
-    clearMecs.addEventListener('click', function () {
-      document.querySelectorAll('input[type="checkbox"][name="mechanics"]').forEach(function (cb) { cb.checked = false; });
-      var p = document.getElementById('page_input'); if (p) p.value = '1';
-      submitDebounced(10);
-    });
-  }
-
-  function changePage(delta) {
-    var p = document.getElementById('page_input');
-    var totalEl = document.querySelector('.js-pages-total');
-    var total = parseInt(totalEl ? totalEl.textContent : '1', 10);
-    if (isNaN(total) || total < 1) total = 1;
-    var cur = parseInt(p ? p.value : '1', 10);
-    if (isNaN(cur) || cur < 1) cur = 1;
-    var next = cur + delta;
-    if (next < 1) next = 1;
-    if (next > total) next = total;
-    if (p) p.value = String(next);
-    submitDebounced(10);
-  }
-  document.querySelectorAll('.js-prev').forEach(function (btn) {
-    btn.addEventListener('click', function () { changePage(-1); });
-  });
-  document.querySelectorAll('.js-next').forEach(function (btn) {
-    btn.addEventListener('click', function () { changePage(1); });
-  });
+  document.querySelectorAll('th a[data-sort]').forEach(link => link.addEventListener('click', event => {
+    event.preventDefault();
+    direction.value = sort.value === link.dataset.sort && direction.value === 'desc' ? 'asc' : 'desc';
+    sort.value = link.dataset.sort; page.value = '1'; schedule(0);
+  }));
+  document.querySelectorAll('.js-prev, .js-next').forEach(button => button.addEventListener('click', () => {
+    const total = Number(document.querySelector('.js-pages-total').textContent);
+    page.value = Math.max(1, Math.min(total, Number(page.value) + (button.classList.contains('js-next') ? 1 : -1)));
+    schedule(0);
+  }));
+  labels(); indicators();
 })();

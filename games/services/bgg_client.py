@@ -2,12 +2,13 @@ import time
 import logging
 import os
 from typing import Dict, List, Tuple, Iterator
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 import csv
 import io
 import zipfile
 import requests
 import xml.etree.ElementTree as ET
+from games.forms import validate_ranks_url
 
 
 log = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class BGGClient:
         max_retries: int = 5,
         backoff: float = 2.0,
         fatal_statuses: set[int] | None = None,
+        ranks_download: bool = False,
     ) -> requests.Response:
         retries = 0
         rate_limit_retries = 0
@@ -87,7 +89,32 @@ class BGGClient:
         while True:
             self._check()
             try:
-                resp = self.session.get(url, headers=headers, timeout=60)
+                if ranks_download:
+                    download_url = url
+                    for _ in range(5):
+                        validate_ranks_url(download_url)
+                        resp = self.session.get(download_url, headers=headers, timeout=60,
+                                                stream=True, allow_redirects=False)
+                        if resp.status_code not in (301, 302, 303, 307, 308):
+                            break
+                        destination = urljoin(download_url, resp.headers.get('Location', ''))
+                        resp.close()
+                        download_url = destination
+                    else:
+                        raise RuntimeError('Too many ranks download redirects.')
+                    try:
+                        content, size = [], 0
+                        for block in resp.iter_content(chunk_size=65536):
+                            self._check()
+                            size += len(block)
+                            if size > 50 * 1024 * 1024:
+                                raise RuntimeError('Ranks ZIP exceeds the 50 MB download limit.')
+                            content.append(block)
+                        resp._content = b''.join(content)
+                    finally:
+                        resp.close()
+                else:
+                    resp = self.session.get(url, headers=headers, timeout=60)
                 if resp.status_code == 429:
                     rate_limit_retries += 1
                     retry_after = resp.headers.get("Retry-After")
@@ -143,7 +170,7 @@ class BGGClient:
         if not zip_url:
             raise RuntimeError('A ranks ZIP URL is required. Paste the "Click to Download" link from the BGG data dumps page.')
         try:
-            zip_resp = self._get(zip_url, fatal_statuses={403})
+            zip_resp = self._get(zip_url, fatal_statuses={403}, ranks_download=True)
         except RuntimeError as exc:
             raise RuntimeError('Failed to download ranks ZIP. The link may have expired or is invalid.') from exc
         except requests.RequestException as exc:
@@ -155,6 +182,8 @@ class BGGClient:
                 csv_name = next((name for name in members if name.lower().endswith('.csv')), None)
                 if not csv_name:
                     raise RuntimeError('Ranks archive did not contain a CSV file')
+                if zf.getinfo(csv_name).file_size > 250 * 1024 * 1024:
+                    raise RuntimeError('Ranks CSV exceeds the 250 MB uncompressed limit.')
                 with zf.open(csv_name) as csvfile:
                     reader = csv.DictReader(io.TextIOWrapper(csvfile, encoding='utf-8'))
                     results: Dict[str, Dict] = {}

@@ -8,6 +8,9 @@ from .jobs import enqueue
 from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh, run_scrape_rtt, run_fetch_bga
 from .utils import GameFilter, serialize_game_row, recompute_owned_flags
+from .catalog import COLUMNS, SORTABLE
+from .forms import ImportForm
+from django.contrib import messages
 import csv
 
 
@@ -29,7 +32,12 @@ def home(request):
 def refresh(request):
     saved_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
     if request.method == 'POST':
-        action = request.POST.get('action')
+        form = ImportForm(request.POST)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                messages.error(request, ' '.join(errors))
+            return redirect('refresh')
+        action = form.cleaned_data['action']
         if action == 'add_user':
             username = (request.POST.get('username') or '').strip()
             if username:
@@ -168,6 +176,7 @@ def retry_job(request, job_id):
 def _compute_rows_context(request):
     game_filter = GameFilter(request.GET)
     qs, qs_pre_category, pc_range, pc_min = game_filter.get_queryset()
+    request.GET = game_filter.params
     
     # Pagination
     def to_page_int(val, default):
@@ -206,10 +215,12 @@ def _compute_rows_context(request):
     ]
     top_cat_pairs = [(name, fam_counts.get(name, 0)) for name in pinned_display]
 
-    other_names = sorted(cat_counts.keys(), key=lambda x: x.lower())
+    other_names = sorted(set(cat_counts) | (set(game_filter._get_list('categories')) - set(pinned_display)), key=str.lower)
     other_cat_pairs = [(name, cat_counts.get(name, 0)) for name in other_names]
 
     # Mechanics: show the most common as a pinned "top" list, the rest collapsed.
+    for name in game_filter._get_list('mechanics'):
+        mec_counts.setdefault(name, 0)
     sorted_mechanics = sorted(mec_counts.items(), key=lambda x: (-x[1], x[0]))
     top_n_mechanics = 20
     top_mech_pairs = sorted_mechanics[:top_n_mechanics]
@@ -265,6 +276,8 @@ def _compute_rows_context(request):
         'min_voters': request.GET.get('min_voters', ''),
         'qs': qs_param,
         'qs_nosort': qs_nosort,
+        'sort_query': query_dict.urlencode(),
+        'canonical_query': request.GET.urlencode(),
         'page': page_obj.number,
         'page_size': page_size,
         'num_pages': num_pages,
@@ -285,39 +298,8 @@ def _compute_rows_context(request):
 
 def games_list(request):
     context = _compute_rows_context(request)
-    context["column_label_pairs"] = [
-        ('score_factor', 'Score'),
-        ('title', 'Game'),
-        ('game_id', 'Game ID'),
-        ('year', 'Year'),
-        ('bgg_rank', 'BGG Rank'),
-        ('avg_rating', 'Avg rating'),
-        ('num_voters', 'Voters'),
-        ('weight', 'Weight'),
-        ('weight_votes', 'Weight votes'),
-        ('owners', 'Owners'),
-        ('type', 'Type'),
-        ('families', 'Families'),
-        ('categories', 'Categories'),
-        ('mechanics', 'Mechanics'),
-        ('player_count', 'Players'),
-        ('best_pct', 'Best %'),
-        ('best_votes', 'Best votes'),
-        ('rec_pct', 'Rec %'),
-        ('rec_votes', 'Rec votes'),
-        ('not_pct', 'Not %'),
-        ('not_votes', 'Not votes'),
-        ('total_votes', 'Total votes'),
-        ('pc_score_unadj', 'Player Count Score (unadjusted)'),
-        ('pc_score', 'Player Count Score'),
-        ('playable', 'Playable'),
-    ]
-    
-    sortable_columns = {
-        'score_factor', 'title', 'year', 'bgg_rank', 'avg_rating', 
-        'num_voters', 'weight', 'pc_score', 'playable'
-    }
-    context["sortable_columns"] = sortable_columns
+    context['column_label_pairs'] = [(key, label) for key, label, _ in COLUMNS]
+    context['sortable_columns'] = SORTABLE
     return render(request, 'games_list.html', context)
 
 def games_rows(request):
@@ -325,6 +307,8 @@ def games_rows(request):
     html = render_to_string('partials/games_rows.html', {'rows': context['rows']}, request=request)
     return JsonResponse({
         'html': html,
+        'facets_html': render_to_string('partials/catalog_facets.html', context, request=request),
+        'query': context['canonical_query'],
         'count': context.get('rows_total', context.get('rows_count', len(context['rows']))),
         'page': context['page'],
         'page_size': context['page_size'],
@@ -344,42 +328,17 @@ def game_detail(request, bgg_id: str):
     return render(request, 'game_detail.html', {'game': game, 'player_counts': pcs})
 
 
-CSV_HEADER = [
-    'Score Factor', 'Game Title', 'Game ID', 'Year', 'BGG Rank', 'Average Rating', 'Number of Voters',
-    'Weight', 'Weight Votes', 'Owned', 'Owners', 'Type', 'Categories', 'Mechanics', 'Player Count',
-    'Best %', 'Best Votes', 'Rec. %', 'Rec. Votes', 'Not %', 'Not Votes', 'Total Votes',
-    'Player Count Score (unadjusted)', 'Player Count Score', 'Playable',
-]
+CSV_HEADER = [label for _, label, _ in COLUMNS]
 
 
-def _csv_row(r):
-    return [
-        r.get('score_factor'),
-        r.get('title'),
-        r.get('game_id'),
-        r.get('year') if r.get('year') is not None else 'N/A',
-        r.get('bgg_rank') if r.get('bgg_rank') is not None else 'N/A',
-        r.get('avg_rating'),
-        r.get('num_voters'),
-        r.get('weight') if r.get('weight') is not None else 'N/A',
-        r.get('weight_votes') if r.get('weight_votes') is not None else 'N/A',
-        'Owned' if r.get('owned') else 'Not Owned',
-        r.get('owned_by_str'),
-        r.get('type'),
-        r.get('categories_str'),
-        r.get('mechanics_str'),
-        r.get('player_count'),
-        r.get('best_pct'),
-        r.get('best_votes'),
-        r.get('rec_pct'),
-        r.get('rec_votes'),
-        r.get('not_pct'),
-        r.get('not_votes'),
-        r.get('total_votes'),
-        r.get('pc_score_unadj'),
-        r.get('pc_score'),
-        r.get('playable'),
-    ]
+def _csv_text(value):
+    if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@')):
+        return "'" + value
+    return value
+
+
+def _csv_row(row):
+    return [_csv_text(row.get(value_key)) for _, _, value_key in COLUMNS]
 
 
 class _Echo:

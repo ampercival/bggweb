@@ -1,0 +1,70 @@
+      <div class="filter-field filter-field--full">
+        <label for="categoriesSearch">Categories</label>
+        <div class="inline-controls">
+          <input id="categoriesSearch" type="text" placeholder="Search categories...">
+          <button type="button" id="clearCategories" class="ghost-button small">Clear</button>
+        </div>
+        <div id="categoriesList">
+          <div id="categoriesTop">
+            {% for pair in top_categories_pairs %}
+            {% with cat=pair.0 cnt=pair.1 %}
+            <label class="cat-item" data-name="{{ cat|lower }}">
+              <input type="checkbox" name="categories" value="{{ cat }}" {% if cat in selected_categories %}checked{% endif %}>
+              <span>{{ cat }} ({{ cnt }})</span>
+            </label>
+            {% endwith %}
+            {% endfor %}
+          </div>
+          {% if other_categories %}
+          <details id="categoriesMore" {% if open_more_categories %}open{% endif %}>
+            <summary>Show {{ other_categories|length }} more</summary>
+            <div id="categoriesListRest">
+              {% for pair in other_categories_pairs %}
+              {% with cat=pair.0 cnt=pair.1 %}
+              <label class="cat-item" data-name="{{ cat|lower }}">
+                <input type="checkbox" name="categories" value="{{ cat }}" {% if cat in selected_categories %}checked{% endif %}>
+                <span>{{ cat }} ({{ cnt }})</span>
+              </label>
+              {% endwith %}
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="filter-field filter-field--full">
+        <label for="mechanicsSearch">Mechanics</label>
+        <div class="inline-controls">
+          <input id="mechanicsSearch" type="text" placeholder="Search mechanics...">
+          <button type="button" id="clearMechanics" class="ghost-button small">Clear</button>
+        </div>
+        <div id="mechanicsList">
+          <div id="mechanicsTop">
+            {% for pair in top_mechanics_pairs %}
+            {% with mec=pair.0 cnt=pair.1 %}
+            <label class="cat-item" data-name="{{ mec|lower }}">
+              <input type="checkbox" name="mechanics" value="{{ mec }}" {% if mec in selected_mechanics %}checked{% endif %}>
+              <span>{{ mec }} ({{ cnt }})</span>
+            </label>
+            {% endwith %}
+            {% endfor %}
+          </div>
+          {% if other_mechanics_pairs %}
+          <details id="mechanicsMore" {% if open_more_mechanics %}open{% endif %}>
+            <summary>Show {{ other_mechanics_pairs|length }} more</summary>
+            <div id="mechanicsListRest">
+              {% for pair in other_mechanics_pairs %}
+              {% with mec=pair.0 cnt=pair.1 %}
+              <label class="cat-item" data-name="{{ mec|lower }}">
+                <input type="checkbox" name="mechanics" value="{{ mec }}" {% if mec in selected_mechanics %}checked{% endif %}>
+                <span>{{ mec }} ({{ cnt }})</span>
+              </label>
+              {% endwith %}
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+

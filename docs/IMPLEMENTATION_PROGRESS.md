@@ -18,3 +18,10 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 - Added ten-second heartbeats, explicit stale-job recovery (`recover_jobs`), new-job retry actions, and bounded/cancellable BGG queue waits. Permanent authentication/input errors fail without repeated sleeps.
 - Job pages render source-specific phases, show new errors without reload, recover from polling failures, warn about missing heartbeats, and hide privileged controls from public viewers.
 - Validation: 72 Django tests pass, Ruff passes, migration drift check passes. Nine new checks cover queued cancellation, duplicates, lease contention/release, stale recovery, active-history preservation, public permissions and bounded waits. Actual external-service and deployment behavior remains a separate acceptance step.
+
+## Catalog consistency
+
+- Added canonical bounded filters for pages, AJAX and CSV; invalid/non-finite values recover safely. Fixed repeated mechanics, request supersession, playable sorting, stable tie-breakers, reset defaults, fallback sort links and actual sign-in routing.
+- Added filtered export, a shared 25-column table/export contract (including Families), spreadsheet-formula text escaping, and live facet HTML. Facet counts describe game/player-count rows matching the basic filters, before taxonomy selections.
+- Import forms validate usernames, counts and HTTPS ranks hosts. Downloads validate redirects and cap compressed/uncompressed archive sizes.
+- Validation: 80 Django tests pass, Ruff and JavaScript syntax checks pass, full static collection passes. Browser at a fresh local origin retained Dice Rolling + Hand Management in selected controls, canonical URL and export URL and returned 12,207 combined rows. Migrations 0009/0010 applied locally. The browser had cached the pre-change assets at the earlier origin; fresh-origin verification confirmed the shipped source.
