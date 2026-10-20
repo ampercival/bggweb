@@ -53,6 +53,10 @@ def managed_job(function):
                 status='error', error=str(exc), finished_at=timezone.now())
             raise
         finally:
+            completed = FetchJob.objects.filter(pk=job_id, status='done').first()
+            if completed:
+                from .catalog_cache import invalidate_catalog
+                invalidate_catalog(source=completed.kind)
             CatalogLease.objects.filter(pk=1, job_id=job_id).update(job=None)
     return run
 

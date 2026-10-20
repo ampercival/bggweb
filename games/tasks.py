@@ -21,6 +21,7 @@ from .services.bgg_client import BGGClient, BGA_FAMILY_ID
 from .services.rtt_client import RTTClient
 from .utils import recompute_owned_flags
 from .db import bulk_update
+from .catalog_cache import invalidate_catalog
 from .jobs import JobCancelled, check_job, managed_job
 
 log = logging.getLogger(__name__)
@@ -424,6 +425,8 @@ def _sync_catalog(
     owned_count = sum(len(ids) for ids in collection_owned_map.values())
     report_units(owned_count)
 
+    invalidate_catalog()
+
     # Final Progress
     if track_progress and last_progress < progress_target:
         progress_callback(progress_target)
@@ -491,6 +494,7 @@ def _sync_platform_collection(label, bgg_ids):
         OwnedGame.objects.filter(id__in=to_delete).delete()
 
     recompute_owned_flags(affected_pks)
+    invalidate_catalog()
 
 
 def sync_rtt_collection():

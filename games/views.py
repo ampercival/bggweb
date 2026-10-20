@@ -9,6 +9,7 @@ from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh, run_scrape_rtt, run_fetch_bga
 from .utils import GameFilter, serialize_game_row, recompute_owned_flags
 from .catalog import COLUMNS, SORTABLE
+from .catalog_cache import invalidate_catalog
 from .forms import ImportForm
 from django.contrib import messages
 import csv
@@ -38,6 +39,8 @@ def refresh(request):
                 messages.error(request, ' '.join(errors))
             return redirect('refresh')
         action = form.cleaned_data['action']
+        if action in ['add_user', 'delete_user']:
+            invalidate_catalog()
         if action == 'add_user':
             username = (request.POST.get('username') or '').strip()
             if username:

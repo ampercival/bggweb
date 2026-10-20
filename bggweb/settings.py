@@ -182,3 +182,5 @@ if not DEBUG:
     X_FRAME_OPTIONS = 'DENY'
 
 LOGIN_URL = '/admin/login/'
+
+CATALOG_CACHE_ENABLED = not _RUNNING_TESTS

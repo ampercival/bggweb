@@ -159,3 +159,8 @@ class FetchJob(models.Model):
 class CatalogLease(models.Model):
     """Singleton lease; shared by every process using the catalog database."""
     job = models.ForeignKey(FetchJob, null=True, blank=True, on_delete=models.SET_NULL)
+
+
+class CatalogRevision(models.Model):
+    version = models.PositiveBigIntegerField(default=0)
+    source_updated = models.JSONField(default=dict)
