@@ -35,6 +35,20 @@ BGA_OWNER_LABEL = "Board Game Arena"
 PLATFORM_OWNER_LABELS = {RTT_OWNER_LABEL, BGA_OWNER_LABEL}
 
 
+def _complete_job(job, total=None):
+    if total is not None:
+        job.total = total
+    if job.kind == 'refresh':
+        job.params['phases']['cleanup'].update(status='done', progress=1, total=1,
+                                               finished_at=timezone.now().isoformat())
+        job.params['current_phase'] = 'done'
+    job.status = 'done'
+    job.finished_at = timezone.now()
+    job.progress = job.total
+    job.save(update_fields=['status', 'finished_at', 'progress', 'total', 'params'])
+    invalidate_catalog(source=job.kind)
+
+
 def _validate_details(ids, details, counts):
     expected = {str(gid) for gid in ids}
     if expected - set(details) or expected - set(counts):
@@ -726,12 +740,9 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
             _sync_catalog(combined, details, pcounts, prune=True, check_cancelled=check_cancel)
             sync_platform_collections()
             check_cancel()
+            _complete_job(job)
         log.info('Job %s: catalog sync complete for Top N', job.id)
 
-        job.status = "done"
-        job.finished_at = timezone.now()
-        job.progress = job.total
-        job.save(update_fields=["status", "finished_at", "progress"])
         log.info('Job %s: Top N fetch finished successfully', job.id)
     except JobCancelled:
         log.info('Job %s: Top N fetch cancelled', job.id)
@@ -786,11 +797,9 @@ def run_fetch_collection(job_id: int, username: str):
                           prune=False, check_cancelled=check_cancel)
             sync_platform_collections()
             check_cancel()
+            _complete_job(job)
         log.info('Job %s: catalog sync complete for collection job', job.id)
 
-        job.status = "done"
-        job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at"])
         log.info('Job %s: collection fetch finished successfully', job.id)
     except JobCancelled:
         log.info('Job %s: collection fetch cancelled', job.id)
@@ -1095,19 +1104,7 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
                           check_cancelled=check_cancel)
             sync_platform_collections()
             check_cancel()
-        job.params["phases"]["cleanup"].update(
-            status="done", progress=1, total=1,
-            finished_at=timezone.now().isoformat(),
-        )
-        job.params["current_phase"] = "done"
-
-        job.status = "done"
-        job.finished_at = timezone.now()
-        job.progress = job.total
-        job.save(update_fields=["status", "finished_at", "progress", "params"])
-        params_local = job.params or {}
-        params_local["current_phase"] = "done"
-        job.params = params_local
+            _complete_job(job)
         log.info('Job %s: refresh job finished successfully', job.id)
 
     except JobCancelled:
@@ -1185,11 +1182,7 @@ def run_scrape_rtt(job_id: int):
 
             check_cancel()
 
-        job.total = len(scraped_ids)
-        job.progress = len(scraped_ids)
-        job.status = "done"
-        job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at", "progress", "total"])
+            _complete_job(job, total=len(scraped_ids))
         log.info('Job %s: Rally the Troops scrape finished (%s games)', job.id, len(scraped_ids))
     except JobCancelled:
         log.info('Job %s: Rally the Troops scrape cancelled', job.id)
@@ -1271,11 +1264,7 @@ def run_fetch_bga(job_id: int, family_id: str | None = None):
 
             check_cancel()
 
-        job.total = len(member_ids)
-        job.progress = len(member_ids)
-        job.status = "done"
-        job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at", "progress", "total"])
+            _complete_job(job, total=len(member_ids))
         log.info('Job %s: Board Game Arena fetch finished (%s games)', job.id, len(member_ids))
     except JobCancelled:
         log.info('Job %s: Board Game Arena fetch cancelled', job.id)

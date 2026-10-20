@@ -66,8 +66,8 @@ class GameFilter:
         elif player_count == '8plus':
             qs = qs.filter(count__gte=8)
 
-        min_year = self._to_int(self.params.get('min_year')) or self.year_slider_min
-        max_year = self._to_int(self.params.get('max_year')) or self.year_slider_max
+        min_year = int(self.params['min_year'])
+        max_year = int(self.params['max_year'])
         strict_year = (min_year > self.year_slider_min) or (max_year < self.year_slider_max)
         qs = qs.filter(Q(year_int__gte=min_year) | Q(year_int__isnull=True))
         qs = qs.filter(Q(year_int__lte=max_year) | Q(year_int__isnull=True))

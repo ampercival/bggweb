@@ -67,6 +67,9 @@ class CatalogBrowserTests(StaticLiveServerTestCase):
         self.assertLess(self.page.locator('.results-card').bounding_box()['y'], 900)
         expect(self.page.locator('#advancedFilters')).not_to_have_attribute('open', '')
         expect(self.page.locator('th:visible')).to_have_count(7)
+        directory = Path('artifacts/browser')
+        directory.mkdir(parents=True, exist_ok=True)
+        self.page.screenshot(path=str(directory / 'mobile-catalog.png'))
         self.page.locator('#detailedColumns').check()
         expect(self.page.locator('th:visible')).to_have_count(25)
 

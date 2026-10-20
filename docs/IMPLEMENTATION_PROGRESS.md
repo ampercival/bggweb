@@ -51,3 +51,6 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 - The first expanded CI run passed Python 3.11/3.12, PostgreSQL and the dependency audit. Browser setup failed because the synchronous Playwright driver was started before synchronous Django fixtures; its lifecycle now encloses browser work only, without disabling Django safety checks.
 - The repository's existing automatic Pages workflow tried to parse Django template syntax in CLAUDE.md. Added a documentation-only Jekyll exclusion list; this does not deploy or reconfigure the Django host.
 - Final review also aligned exact high player-count/custom page-size controls and clamped page URLs with server filter state.
+
+- Final failure-boundary check: catalog writes, the job's completion record and successful-source timestamp now commit together. A new regression verifies that a failed completion write rolls back the catalog as well. Backend suite: 94 passing tests.
+- A verified online backup of the current 10,093-game local catalog was created at `backups/catalog-2026-10-20-reviewed.sqlite3` (git-ignored). No source refresh was run.

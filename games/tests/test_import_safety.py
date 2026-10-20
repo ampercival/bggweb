@@ -76,6 +76,26 @@ class ImportSafetyTests(TestCase):
         self.assertEqual(self.game.year, 2000)
         self.assertEqual(self.game.player_counts.count(), 1)
 
+    def test_completion_record_failure_rolls_back_catalog(self):
+        job = FetchJob.objects.create(kind='top_n')
+        original_save = FetchJob.save
+
+        def fail_done(instance, *args, **kwargs):
+            if instance.status == 'done':
+                raise RuntimeError('completion write failed')
+            return original_save(instance, *args, **kwargs)
+
+        with patch('games.tasks.BGGClient') as client, patch.object(FetchJob, 'save', fail_done):
+            client.return_value.fetch_top_games_ranks.return_value = {'1': game_info(1, 'Changed')}
+            client.return_value.fetch_details_batches.return_value = ({'1': game_detail(year=2020)}, {'1': {}})
+            run_fetch_top_n.now(job.pk, 1, 'https://example.invalid/ranks.zip')
+        self.game.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'error')
+        self.assertEqual(self.game.title, 'Original')
+        self.assertEqual(self.game.year, 2000)
+        self.assertEqual(self.game.player_counts.count(), 1)
+
     def test_refresh_later_batch_failure_leaves_live_data_untouched(self):
         job = FetchJob.objects.create(kind='refresh')
 
