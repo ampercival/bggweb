@@ -16,6 +16,8 @@ def validate_ranks_url(value):
     if (parsed.scheme != 'https' or parsed.hostname not in {host.strip() for host in hosts}
             or parsed.username or parsed.password or port not in (None, 443)):
         raise ValidationError('Use the HTTPS download link from the BGG ranks data-dump page.')
+    if parsed.hostname == 'boardgamegeek.com' and parsed.path.rstrip('/') == '/data_dumps/bg_ranks':
+        raise ValidationError('This is the BGG download page. Open it and copy the "Click to Download" link, then paste that link here.')
 
 
 class ImportForm(forms.Form):

@@ -57,6 +57,8 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 
 ## Final acceptance
 
+- Follow-up: Job 59 submitted the BGG data-dump landing page, not its ZIP download link. Input validation now rejects that page with instructions, and HTML/error-document responses explain how to obtain a fresh link. Regression checks also exercise the actual streamed response path.
+
 - Code commit `839270a` passed every expanded CI job: SQLite on Python 3.11 and 3.12, PostgreSQL 16, all three real-browser workflows, production settings/static checks, and dependency audit. CI: https://github.com/ampercival/bggweb/actions/runs/39509560006 . The Pages documentation build/deployment also passed: https://github.com/ampercival/bggweb/actions/runs/39509558794 .
 - Backend suite: 94 tests. Browser suite: three workflows covering multi-mechanic selection/reload/filtered CSV, 390 x 844 layout/detailed-column toggle, and polling recovery/new error rendering. PostgreSQL skips the SQLite-specific backup drill by design.
 - Final populated local phone check: results section starts at about y=623, first row at y=949 (one short scroll), seven visible columns and no page-wide overflow, compared with the original results starting near y=2,463. Production-style hashed assets and locked Django 5.2.18 were used.

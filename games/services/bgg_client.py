@@ -8,6 +8,7 @@ import io
 import zipfile
 import requests
 import xml.etree.ElementTree as ET
+from django.core.exceptions import ValidationError
 from games.forms import validate_ranks_url
 
 
@@ -173,12 +174,18 @@ class BGGClient:
         if not zip_url:
             raise RuntimeError('A ranks ZIP URL is required. Paste the "Click to Download" link from the BGG data dumps page.')
         try:
+            validate_ranks_url(zip_url)
+        except ValidationError as exc:
+            raise RuntimeError(' '.join(exc.messages)) from exc
+        try:
             zip_resp = self._get(zip_url, fatal_statuses={403}, ranks_download=True)
         except RuntimeError as exc:
             raise RuntimeError('Failed to download ranks ZIP. The link may have expired or is invalid.') from exc
         except requests.RequestException as exc:
             raise RuntimeError('Failed to download ranks ZIP. The link may have expired.') from exc
 
+        if zip_resp.content.lstrip().startswith(b'<'):
+            raise RuntimeError('BGG returned a web page or error document instead of the ranks ZIP. Open the BGG data-dump page and copy a fresh "Click to Download" link.')
         try:
             with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as zf:
                 members = zf.namelist()

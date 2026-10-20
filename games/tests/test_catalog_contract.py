@@ -29,6 +29,9 @@ class FilterValidationTests(SimpleTestCase):
     def test_import_input_validation(self):
         self.assertFalse(ImportForm({'action': 'top_n', 'n': '-1', 'zip_url': 'http://localhost/data.zip'}).is_valid())
         self.assertFalse(ImportForm({'action': 'collection', 'username': ''}).is_valid())
+        form = ImportForm({'action': 'refresh', 'n': '100', 'zip_url': 'https://boardgamegeek.com/data_dumps/bg_ranks/'})
+        self.assertFalse(form.is_valid())
+        self.assertIn('This is the BGG download page', str(form.errors))
 
 
 @override_settings(**VIEW_TEST_SETTINGS)

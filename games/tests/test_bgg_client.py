@@ -1,5 +1,6 @@
 import io
 import zipfile
+import requests
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -42,7 +43,7 @@ class RanksZipParsingTests(SimpleTestCase):
         ])
         client = _client()
         with mock.patch.object(client, "_get", return_value=FakeResp(content=content)):
-            result = client.fetch_top_games_ranks(0, zip_url="http://example/zip")
+            result = client.fetch_top_games_ranks(0, zip_url="https://boardgamegeek.com/ranks.zip")
 
         self.assertEqual(set(result.keys()), {"13", "9209"})
         self.assertEqual(result["13"]["Game Title"], "Catan")
@@ -55,19 +56,41 @@ class RanksZipParsingTests(SimpleTestCase):
         content = _ranks_zip([f"{i},{i},G{i},7.0,100,0" for i in range(1, 11)])
         client = _client()
         with mock.patch.object(client, "_get", return_value=FakeResp(content=content)):
-            result = client.fetch_top_games_ranks(3, zip_url="http://example/zip")
+            result = client.fetch_top_games_ranks(3, zip_url="https://boardgamegeek.com/ranks.zip")
         self.assertEqual(len(result), 3)
 
     def test_expansion_flag(self):
         content = _ranks_zip(["1,5,Exp,7.0,100,1"])
         client = _client()
         with mock.patch.object(client, "_get", return_value=FakeResp(content=content)):
-            result = client.fetch_top_games_ranks(0, zip_url="http://example/zip")
+            result = client.fetch_top_games_ranks(0, zip_url="https://boardgamegeek.com/ranks.zip")
         self.assertEqual(result["5"]["Type"], "Expansion")
 
     def test_missing_zip_url_raises(self):
         with self.assertRaises(RuntimeError):
             _client().fetch_top_games_ranks(10, zip_url=None)
+
+    def test_download_page_is_rejected_before_http(self):
+        client = _client()
+        with mock.patch.object(client, '_get') as get:
+            with self.assertRaisesRegex(RuntimeError, 'This is the BGG download page'):
+                client.fetch_top_games_ranks(10, zip_url='https://boardgamegeek.com/data_dumps/bg_ranks')
+        get.assert_not_called()
+
+    def test_html_response_explains_how_to_get_fresh_link(self):
+        client = _client()
+        with mock.patch.object(client, '_get', return_value=FakeResp(b'<!DOCTYPE html><html>Log in</html>')):
+            with self.assertRaisesRegex(RuntimeError, 'instead of the ranks ZIP'):
+                client.fetch_top_games_ranks(10, zip_url='https://boardgamegeek.com/ranks.zip')
+
+    def test_real_response_stream_remains_readable_after_close(self):
+        client = _client()
+        response = requests.Response()
+        response.status_code = 200
+        response.raw = io.BytesIO(_ranks_zip(['1,13,Catan,7.5,5000,0']))
+        with mock.patch.object(client.session, 'get', return_value=response):
+            result = client.fetch_top_games_ranks(10, zip_url='https://boardgamegeek.com/ranks.zip')
+        self.assertEqual(result['13']['Game Title'], 'Catan')
 
 
 THING_XML = b"""<?xml version="1.0"?>
