@@ -148,7 +148,7 @@
 .filter-chip { background: var(--surface-muted); padding: .3rem .6rem; border-radius: 12px; font-size: .85rem; }
 .platform-note, .sample-note { display: block; font-size: .8rem; color: var(--text-muted); }
 .sample-note { color: #875300; }
-.compact-table:not(.show-details) [data-column]:not([data-column="score_factor"]):not([data-column="title"]):not([data-column="player_count"]):not([data-column="avg_rating"]):not([data-column="weight"]):not([data-column="owners"]):not([data-column="total_votes"]) { display: none; }
+.compact-table:not(.show-details) [data-column]:not([data-column="score_factor"]):not([data-column="title"]):not([data-column="player_count"]):not([data-column="avg_rating"]):not([data-column="weight"]):not([data-column="owners"]):not([data-column="total_votes"]):not([data-column="playtime"]) { display: none; }
 .compact-table { table-layout: auto; min-width: 680px; }
 .compact-table td[data-column="title"] { min-width: 160px; }
 .compact-table td { vertical-align: top; }

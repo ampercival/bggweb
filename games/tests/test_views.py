@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from games.models import FetchJob, Game, PlayerCountRecommendation
 from games.views import CSV_HEADER
+from games.catalog import COLUMNS
 
 
 def _make_game(gid, gtype="Base Game", best_pct=100.0):
@@ -70,11 +71,11 @@ class ExportCsvTests(TestCase):
         self.assertEqual(rows[0], CSV_HEADER)
         self.assertEqual(len(rows) - 1, 3)  # 3 data rows
 
-    def test_header_and_rows_have_25_columns(self):
+    def test_header_and_rows_have_catalog_columns(self):
         rows = self._read_csv(type="all", playable="all")
-        self.assertEqual(len(rows[0]), 25)
+        self.assertEqual(len(rows[0]), len(COLUMNS))
         for data_row in rows[1:]:
-            self.assertEqual(len(data_row), 25)
+            self.assertEqual(len(data_row), len(COLUMNS))
 
     def test_export_respects_filters(self):
         rows = self._read_csv(type="expansion", playable="all")
@@ -106,8 +107,8 @@ class GamesTableColumnTests(TestCase):
         first_row = row_html.split("</tr>")[0]
         body_count = self._count(first_row, "td")
 
-        self.assertEqual(header_count, 25)
-        self.assertEqual(body_count, 25)
+        self.assertEqual(header_count, len(COLUMNS))
+        self.assertEqual(body_count, len(COLUMNS))
 
 
 @override_settings(**VIEW_TEST_SETTINGS)

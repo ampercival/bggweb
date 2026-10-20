@@ -16,5 +16,5 @@
   {% endfor %}
 </tr>
 {% empty %}
-<tr><td colspan="25">No matching poll rows. Try fewer filters, or <a href="{% url 'games_missing' %}">browse games without polls</a>.</td></tr>
+<tr><td colspan="{{ column_count }}">No matching poll rows. Try fewer filters, or <a href="{% url 'games_missing' %}">browse games without polls</a>.</td></tr>
 {% endfor %}

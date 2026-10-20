@@ -36,6 +36,17 @@ def normalize_filters(raw):
         if float(result[lower]) > float(result[upper]):
             result[lower], result[upper] = result[upper], result[lower]
     result['q'] = raw.get('q', '').strip()[:200]
+    for key in ['min_playtime', 'max_playtime']:
+        try:
+            value = float(raw.get(key, ''))
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError()
+            result[key] = str(max(1, min(int(value), 2147483647)))
+        except (ValueError, TypeError, OverflowError):
+            result[key] = ''
+    if (result['min_playtime'] and result['max_playtime']
+            and int(result['min_playtime']) > int(result['max_playtime'])):
+        result['min_playtime'], result['max_playtime'] = result['max_playtime'], result['min_playtime']
     for key in ['owners', 'categories', 'mechanics']:
         result.setlist(key, sorted({value.strip()[:200] for value in raw.getlist(key)[:200] if value.strip()}))
     return result

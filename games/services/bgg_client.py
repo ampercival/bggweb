@@ -10,6 +10,7 @@ import requests
 import xml.etree.ElementTree as ET
 from django.core.exceptions import ValidationError
 from games.forms import validate_ranks_url
+from games.playtime import positive_minutes
 
 
 log = logging.getLogger(__name__)
@@ -495,6 +496,10 @@ class BGGClient:
                     'Mechanics': mechanics,
                     'Families': list(sorted(set(families))),
                 }
+                for key, tag in [('Playing Time', 'playingtime'), ('Min Playtime', 'minplaytime'),
+                                 ('Max Playtime', 'maxplaytime')]:
+                    node = item.find(tag)
+                    chunk_details[gid][key] = positive_minutes(node.get('value') if node is not None else None)
                 poll = item.find("poll[@name='suggested_numplayers']")
                 pc_map: Dict[str, Dict] = {}
                 if poll is not None:

@@ -8,6 +8,7 @@ A Django app for choosing board games by group size, BGG ratings, player-count p
 - Validated, staged imports: remote failures preserve the existing catalog; database application rolls back on failure.
 - A separate database-backed worker with progress, cancellation, retry, heartbeat and stale-job recovery.
 - Shareable filters, live sorting/pagination and CSV export of the full filtered result.
+- BGG play-time ranges in minutes, minimum/maximum duration filters, sorting and export.
 - A compact mobile catalog with optional detailed columns, poll-vote thresholds and score explanations.
 - Exact and open-ended player-count polls; a separate browse view for games without polls.
 - SQLite with WAL by default; a PostgreSQL integration suite in CI.
@@ -46,6 +47,8 @@ Copy `.env.example` to `.env` for persistent local configuration. `.env` is igno
 4. Follow the job page. All details are fetched and validated before applying data. Partial/error responses cannot prune the catalog.
 
 Top N refreshes preserve collection-only games. Full refreshes reconcile tracked collections and prune untracked data only after successful retrieval. Platform availability continues to appear in the availability filter. Poll buckets previously discarded by older versions appear after the next successful import.
+
+Play times are fetched with game details during imports. Existing rows show Unknown until their next successful import. Time filters require the listed range to fit within your bounds (e.g. maximum 60 minutes excludes a 45–90 minute game). A single listed duration is used when a range bound is absent; unknown durations do not match an active time bound. Zero/malformed source values are unknown. Play-time sorting uses the maximum duration, with unknown values last. These estimates are independent of player-count polls and do not measure actual sessions.
 
 The in-memory staging and final atomic apply are intended for this small catalog. Benchmark substantially larger installations with `python scripts/benchmark_import.py` before increasing import scope.
 

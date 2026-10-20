@@ -44,7 +44,7 @@ bggweb/                     # repo root
 │   ├── urls.py             # app routes
 │   ├── admin.py            # Django admin registrations
 │   ├── apps.py             # enables SQLite WAL/synchronous pragmas on connect
-│   ├── migrations/         # 0001–0013
+│   ├── migrations/         # 0001–0014
 │   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client,
 │                           #   test_rtt_client, test_rtt_sync, test_bga_sync)
 ├── templates/              # project-level templates (DIRS = BASE_DIR/templates)
@@ -237,7 +237,7 @@ the suite runs with `DEBUG=False`. Run with `python manage.py test games`.
 - **Permissions:** `/refresh/`, `cancel_job`, `clear_jobs`, and user add/delete are all
   `@user_passes_test(is_superuser)`.
 - **CSV export** (`export_csv`) streams the **full filtered result set** (not the current page) via
-  `StreamingHttpResponse`; its columns must stay in sync with `games_list`/`games_rows` (25 columns).
+  `StreamingHttpResponse`; its columns must stay in sync with `games_list`/`games_rows` (defined in `games/catalog.py`).
 - Page styling/JS lives in `static/css/` and `static/js/` (a global `site.css`/`site.js` loaded by
   `base.html`, plus per-page files linked from each template's `extra_head`/`extra_scripts`). Templated
   values a script needs (e.g. the games-list rows endpoint, default sort/dir, year bounds) are passed

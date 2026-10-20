@@ -68,6 +68,10 @@
       document.querySelectorAll('.js-prev').forEach(el => el.disabled = data.page <= 1);
       document.querySelectorAll('.js-next').forEach(el => el.disabled = data.page >= data.num_pages);
       const canonical = data.query || query.toString();
+      const canonicalValues = new URLSearchParams(canonical);
+      ['min_playtime', 'max_playtime'].forEach(key => {
+        form.elements.namedItem(key).value = canonicalValues.get(key) || '';
+      });
       window.history.replaceState({}, '', window.location.pathname + '?' + canonical);
       document.getElementById('filteredExport').href = '/export.csv?' + canonical;
       notice.textContent = data.count + ' matching game/player-count rows.';
@@ -130,6 +134,10 @@
     form.querySelectorAll('input[type="checkbox"]:checked').forEach(el => values.push(el.value));
     const minimum = form.elements.namedItem('min_poll_votes').value;
     if (Number(minimum)) values.push('Poll votes: ' + minimum + '+');
+    const minTime = form.elements.namedItem('min_playtime').value;
+    const maxTime = form.elements.namedItem('max_playtime').value;
+    if (minTime) values.push('At least ' + minTime + ' min');
+    if (maxTime) values.push('At most ' + maxTime + ' min');
     target.replaceChildren(...values.map(value => { const chip = document.createElement('span'); chip.className = 'filter-chip'; chip.textContent = value; return chip; }));
   }
   const detailed = document.getElementById('detailedColumns');

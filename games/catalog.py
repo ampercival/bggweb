@@ -13,5 +13,8 @@ COLUMNS = [
     ('not_votes', 'Not votes', 'not_votes'), ('total_votes', 'Poll votes', 'total_votes'),
     ('pc_score_unadj', 'Raw player score', 'pc_score_unadj'), ('pc_score', 'Player score', 'pc_score'),
     ('playable', 'Recommended', 'playable'),
+    ('playtime', 'Play time (min)', 'playtime_label'),
+    ('min_playtime', 'BGG minimum time (min)', 'min_playtime'),
+    ('max_playtime', 'BGG maximum time (min)', 'max_playtime'),
 ]
 SORTABLE = {key for key, _, _ in COLUMNS} - {'owners', 'families', 'categories', 'mechanics'}

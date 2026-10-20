@@ -65,6 +65,16 @@
         {% endif %}
       </div>
 
+      <div class="filter-field">
+        <label for="min_playtime">Minimum play time (minutes)</label>
+        <input id="min_playtime" name="min_playtime" type="number" min="1" step="1" value="{{ min_playtime }}" placeholder="Any length">
+      </div>
+      <div class="filter-field">
+        <label for="max_playtime">Maximum play time (minutes)</label>
+        <input id="max_playtime" name="max_playtime" type="number" min="1" step="1" value="{{ max_playtime }}" placeholder="No limit">
+        <p class="note">Uses the listed maximum.</p>
+      </div>
+
 
 
 
@@ -174,10 +184,11 @@
 
   <section class="results-card">
     <div class="view-options">
-      <label><input type="checkbox" id="detailedColumns"> Show all 25 columns</label>
+      <label><input type="checkbox" id="detailedColumns"> Show all {{ column_count }} columns</label>
       <a href="{% url 'games_missing' %}">Games without polls</a>
     </div>
     <details class="score-explainer"><summary>How recommendations work</summary>
+      <p>Play-time filters use BGG's listed range in minutes, with its single duration as a fallback. The full range must fit your limits; unknown times are excluded when a time limit is set. Play-time sorting uses the maximum. These are listed estimates, not measured session times.</p>
       <p>Score = (3 × BGG average rating + player score) ÷ 4. The player score uses Best × 3 + Recommended × 2 − Not recommended × 2, then scales the catalog's range to 0–10. It stays consistent across filters, but may change after an import.</p>
       <p>Playable means a raw player score of at least 150. Polls with fewer than 20 votes are marked Small sample; this is a visibility aid, not a statistical confidence estimate. Use the poll-vote minimum to choose your own evidence threshold.</p>
       <p>Exact player-count filters use exact polls. Open-ended BGG buckets, such as 8+, keep their original labels and are shown separately. Rows with zero votes have no recommendation evidence.</p>

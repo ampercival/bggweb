@@ -29,6 +29,11 @@
   <div class="detail-meta">
     <div class="meta-grid">
       <div class="meta-item">
+        <span class="meta-label">Play time</span>
+        <strong>{% if game.playtime_label %}{{ game.playtime_label }} minutes{% else %}Unknown{% endif %}</strong>
+        {% if game.playing_time %}<span class="note">BGG listed duration: {{ game.playing_time }} minutes</span>{% endif %}
+      </div>
+      <div class="meta-item">
         <span class="meta-label">Average rating</span>
         <strong>{{ game.avg_rating|default:'N/A' }}</strong>
       </div>

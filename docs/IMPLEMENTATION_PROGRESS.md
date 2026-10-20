@@ -57,6 +57,9 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 
 ## Final acceptance
 
+- Play-time follow-up: imports now parse and store BGG `playingtime`, `minplaytime` and `maxplaytime` (minutes). The compact table, game detail and CSV expose time estimates; minimum/maximum duration controls share canonical page/AJAX/export filters. The listed range must fit the selected bounds, with single-duration fallback and unknown values excluded only when the corresponding bound is active. Sorting uses the upper duration and places unknowns last. Migration 0014 adds nullable fields; existing games populate on their next successful details import.
+- Play-time validation: 106 backend tests, including XML parsing, create/update/clear in both sync paths, malformed/inconsistent source values, range boundaries, unknown/fallback behavior, sorting and page/AJAX/export/detail agreement. Ruff, migration drift and static collection pass. A read-only authenticated BGG request for game 13 returned `playingtime=120`, `minplaytime=60`, `maxplaytime=120`; no catalog import was triggered. Browser/CI follow-up is recorded once complete.
+
 - Follow-up: Job 59 submitted the BGG data-dump landing page, not its ZIP download link. Input validation now rejects that page with instructions, and HTML/error-document responses explain how to obtain a fresh link. Regression checks also exercise the actual streamed response path.
 
 - Code commit `839270a` passed every expanded CI job: SQLite on Python 3.11 and 3.12, PostgreSQL 16, all three real-browser workflows, production settings/static checks, and dependency audit. CI: https://github.com/ampercival/bggweb/actions/runs/39509560006 . The Pages documentation build/deployment also passed: https://github.com/ampercival/bggweb/actions/runs/39509558794 .

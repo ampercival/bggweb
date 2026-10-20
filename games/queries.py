@@ -30,6 +30,8 @@ class GameFilter:
             weight_co=Coalesce('game__weight', Value(0.0)),
             num_voters_co=Coalesce('game__num_voters', Value(0)),
             year_int=F('game__year'),
+            duration_min=Coalesce('game__min_playtime', 'game__playing_time'),
+            duration_max=Coalesce('game__max_playtime', 'game__playing_time'),
         ).annotate(
             pc_score_unadj=raw_player_score()
         )
@@ -87,6 +89,10 @@ class GameFilter:
             qs = qs.filter(num_voters_co__gte=min_voters)
 
         qs = qs.filter(vote_count__gte=int(self.params['min_poll_votes']))
+        if self.params['min_playtime']:
+            qs = qs.filter(duration_min__gte=int(self.params['min_playtime']))
+        if self.params['max_playtime']:
+            qs = qs.filter(duration_max__lte=int(self.params['max_playtime']))
 
         categories = self._get_list('categories')
         mechanics = self._get_list('mechanics')
@@ -135,6 +141,9 @@ class GameFilter:
             'title': F('game__title'),
             'game_id': F('game__bgg_id'),
             'year': F('year_int'),
+            'playtime': F('duration_max'),
+            'min_playtime': F('game__min_playtime'),
+            'max_playtime': F('game__max_playtime'),
             'bgg_rank': F('game__bgg_rank'),
             'avg_rating': F('avg_rating_co'),
             'num_voters': F('num_voters_co'),

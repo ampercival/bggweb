@@ -23,6 +23,7 @@ from .utils import recompute_owned_flags
 from .db import bulk_update
 from .catalog_cache import invalidate_catalog
 from .jobs import JobCancelled, check_job, managed_job
+from .playtime import playtime_fields
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ def _sync_games(desired_ids, games_map, details_map, now):
     for gid in desired_ids:
         info = games_map[gid]
         detail = details_map.get(gid, {})
+        times = playtime_fields(detail)
         game_type = _normalize_type(info.get("Type"))
         year = _to_int(detail.get("Year"))
         avg_rating = _to_float(info.get("Average Rating"))
@@ -156,7 +158,8 @@ def _sync_games(desired_ids, games_map, details_map, now):
         if gid in existing_games:
             game = existing_games[gid]
             before = (game.title, game.type, game.year, game.avg_rating, game.num_voters,
-                      game.weight, game.weight_votes, game.bgg_rank)
+                      game.weight, game.weight_votes, game.bgg_rank,
+                      game.playing_time, game.min_playtime, game.max_playtime)
             game.title = info.get("Game Title") or game.title
             game.type = game_type
             game.year = year
@@ -165,9 +168,12 @@ def _sync_games(desired_ids, games_map, details_map, now):
             game.weight = weight
             game.weight_votes = weight_votes
             game.bgg_rank = bgg_rank
+            for field, value in times.items():
+                setattr(game, field, value)
             game.updated_at = now
             after = (game.title, game.type, game.year, game.avg_rating, game.num_voters,
-                     game.weight, game.weight_votes, game.bgg_rank)
+                     game.weight, game.weight_votes, game.bgg_rank,
+                     game.playing_time, game.min_playtime, game.max_playtime)
             if before != after:
                 games_to_update.append(game)
         else:
@@ -177,6 +183,7 @@ def _sync_games(desired_ids, games_map, details_map, now):
                     title=info.get("Game Title") or "",
                     type=game_type,
                     year=year,
+                    **times,
                     avg_rating=avg_rating,
                     num_voters=num_voters,
                     weight=weight,
@@ -196,6 +203,7 @@ def _sync_games(desired_ids, games_map, details_map, now):
             [
                 "title", "type", "year", "avg_rating", "num_voters",
                 "weight", "weight_votes", "bgg_rank", "updated_at",
+                "playing_time", "min_playtime", "max_playtime",
             ],
         )
         
@@ -584,6 +592,7 @@ def _sync_refresh_chunk(
     for gid in normalized_ids:
         info = games_map.get(gid) or {}
         detail = details_map.get(gid)
+        times = playtime_fields(detail or {})
         if not info and not detail:
             continue
 
@@ -611,6 +620,8 @@ def _sync_refresh_chunk(
             game.avg_rating = avg_rating
             game.num_voters = num_voters
             if detail is not None:
+                for field, value in times.items():
+                    setattr(game, field, value)
                 game.year = year_value
                 game.weight = weight
                 game.weight_votes = weight_votes
@@ -628,6 +639,7 @@ def _sync_refresh_chunk(
                     title=info.get('Game Title') or '',
                     type=game_type,
                     year=year_value,
+                    **times,
                     avg_rating=avg_rating,
                     num_voters=num_voters,
                     weight=weight,
@@ -643,7 +655,8 @@ def _sync_refresh_chunk(
     if games_to_update:
         bulk_update(Game,
             games_to_update,
-            ['title', 'type', 'year', 'avg_rating', 'num_voters', 'weight', 'weight_votes', 'bgg_rank', 'owned', 'owned_by', 'updated_at'],
+            ['title', 'type', 'year', 'avg_rating', 'num_voters', 'weight', 'weight_votes', 'bgg_rank', 'owned', 'owned_by', 'updated_at',
+             'playing_time', 'min_playtime', 'max_playtime'],
         )
 
     game_objs = Game.objects.in_bulk(normalized_ids, field_name='bgg_id')

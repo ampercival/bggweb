@@ -300,6 +300,8 @@ def _compute_rows_context(request):
         'max_weight': request.GET.get('max_weight', '5.0'),
         'min_voters': request.GET.get('min_voters', ''),
         'min_poll_votes': request.GET.get('min_poll_votes', '0'),
+        'min_playtime': request.GET['min_playtime'],
+        'max_playtime': request.GET['max_playtime'],
         'numeric_player_counts': sorted(set(range(1, 13)) | ({int(request.GET['player_count'])} if request.GET['player_count'].isdigit() else set())),
         'custom_page_size': page_size if page_size not in [50, 100, 200, 500, 1000] else None,
         'qs': qs_param,
@@ -328,11 +330,12 @@ def games_list(request):
     context = _compute_rows_context(request)
     context['column_label_pairs'] = [(key, label) for key, label, _ in COLUMNS]
     context['sortable_columns'] = SORTABLE
+    context['column_count'] = len(COLUMNS)
     return render(request, 'games_list.html', context)
 
 def games_rows(request):
     context = _compute_rows_context(request)
-    html = render_to_string('partials/games_rows.html', {'rows': context['rows']}, request=request)
+    html = render_to_string('partials/games_rows.html', {'rows': context['rows'], 'column_count': len(COLUMNS)}, request=request)
     return JsonResponse({
         'html': html,
         'facets_html': render_to_string('partials/catalog_facets.html', context, request=request),

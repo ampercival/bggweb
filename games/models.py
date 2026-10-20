@@ -6,6 +6,9 @@ class Game(models.Model):
     title = models.CharField(max_length=255)
     type = models.CharField(max_length=20, choices=[('Base Game', 'Base Game'), ('Expansion', 'Expansion')], db_index=True)
     year = models.IntegerField(null=True, blank=True, db_index=True)
+    playing_time = models.PositiveIntegerField(null=True, blank=True)
+    min_playtime = models.PositiveIntegerField(null=True, blank=True)
+    max_playtime = models.PositiveIntegerField(null=True, blank=True)
     avg_rating = models.FloatField(null=True, blank=True, db_index=True)
     num_voters = models.IntegerField(null=True, blank=True)
     weight = models.FloatField(null=True, blank=True, db_index=True)
@@ -19,6 +22,18 @@ class Game(models.Model):
     families = models.ManyToManyField('Family', blank=True, related_name='games')
     mechanics = models.ManyToManyField('Mechanic', blank=True, related_name='games')
 
+
+    @property
+    def playtime_label(self):
+        low = self.min_playtime or self.playing_time
+        high = self.max_playtime or self.playing_time
+        if low and high:
+            return str(low) if low == high else f'{low}\u2013{high}'
+        if low:
+            return f'\u2265{low}'
+        if high:
+            return f'\u2264{high}'
+        return None
 
     def __str__(self):
         return f"{self.title} ({self.bgg_id})"

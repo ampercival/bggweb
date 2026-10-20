@@ -17,10 +17,14 @@ def game_info(gid, title=None, type="Base Game", avg_rating=7.5, num_voters=1000
 
 
 def game_detail(year=2015, weight=2.5, weight_votes=300, bgg_rank=1,
-                categories=None, families=None, mechanics=None):
+                categories=None, families=None, mechanics=None,
+                playing_time=None, min_playtime=None, max_playtime=None):
     """An entry as produced by the ``thing`` detail fetch (``details_map``)."""
     return {
         "Year": year,
+        "Playing Time": playing_time,
+        "Min Playtime": min_playtime,
+        "Max Playtime": max_playtime,
         "Weight": weight,
         "Weight Votes": weight_votes,
         "BGG Rank": bgg_rank,
