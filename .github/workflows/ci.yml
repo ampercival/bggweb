@@ -88,7 +88,7 @@ jobs:
       - run: pip install -r requirements-browser.txt
       - run: python -m playwright install --with-deps chromium
       - run: python manage.py test browser_tests --verbosity=2
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: browser-acceptance
