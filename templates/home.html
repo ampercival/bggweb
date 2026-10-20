@@ -53,7 +53,11 @@
 <section class="page-section">
   <div class="stat-grid">
     <article class="card stat-card">
-      <h3>Last refresh details</h3>
+      <h3>Last successful imports</h3>
+      {% if source_times %}<ul>{% for source, timestamp in source_times.items %}
+        <li>{{ source|title }}: <span class="localtime" data-ts="{{ timestamp }}">{{ timestamp }}</span></li>
+      {% endfor %}</ul>{% else %}<p class="note">No successful imports recorded since health tracking was enabled. Earlier job history is shown below.</p>{% endif %}
+      <h3>Latest refresh attempt</h3>
       {% if last_refresh %}
       <div class="refresh-meta">
         <div><span class="label">Status:</span> {{ last_refresh.status|title }}</div>

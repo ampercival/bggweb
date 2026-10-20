@@ -164,3 +164,4 @@ class CatalogLease(models.Model):
 class CatalogRevision(models.Model):
     version = models.PositiveBigIntegerField(default=0)
     source_updated = models.JSONField(default=dict)
+    worker_seen_at = models.DateTimeField(null=True, blank=True)

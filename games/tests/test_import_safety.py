@@ -101,6 +101,12 @@ class ImportSafetyTests(TestCase):
 
 
 class SourceValidationTests(SimpleTestCase):
+    def test_truncated_collection_is_rejected(self):
+        client = BGGClient(throttle_sec=0)
+        with patch.object(client.session, 'get', return_value=FakeResp(b'<items totalitems="2"><item objectid="1"/></items>')):
+            with self.assertRaisesRegex(RuntimeError, 'Incomplete BGG collection'):
+                client.fetch_owned_collection('alice')
+
     def test_collection_error_is_not_empty_collection(self):
         client = BGGClient(throttle_sec=0)
         with patch.object(client.session, 'get', return_value=FakeResp(b'<errors><error/></errors>')):

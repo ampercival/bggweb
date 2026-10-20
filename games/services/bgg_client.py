@@ -60,6 +60,9 @@ class BGGClient:
             log.warning("BGG_API_TOKEN not found in environment variables. API calls may fail.")
 
     def _check(self):
+        deadline = getattr(self, '_deadline', None)
+        if deadline is not None and time.monotonic() > deadline:
+            raise RuntimeError('BGG retrieval exceeded its 10 minute deadline. Please retry later.')
         callback = getattr(self, 'check_cancelled', None)
         if callback:
             callback()
@@ -244,6 +247,13 @@ class BGGClient:
 
     # -------- Collection API (handles 202 queueing) --------
     def fetch_owned_collection(self, username: str, on_progress=None) -> Dict[str, Dict]:
+        self._deadline = time.monotonic() + 600
+        try:
+            return self._fetch_owned_collection(username, on_progress)
+        finally:
+            self._deadline = None
+
+    def _fetch_owned_collection(self, username: str, on_progress=None) -> Dict[str, Dict]:
         out: Dict[str, Dict] = {}
         subtypes = ("boardgame", "boardgameexpansion")
         for idx, subtype in enumerate(subtypes, start=1):
@@ -266,6 +276,9 @@ class BGGClient:
                 self._sleep(min(5 * (attempt + 1), 30))
             root = ET.fromstring(resp.content)
             _validate_xml(root)
+            declared = root.get('totalitems')
+            if declared is not None and (not declared.isdigit() or int(declared) != len(root.findall('item'))):
+                raise RuntimeError('Incomplete BGG collection response; existing ownership was preserved.')
             for item in root.findall('item'):
                 gid = item.get('objectid')
                 if not gid:

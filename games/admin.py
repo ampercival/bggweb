@@ -43,6 +43,13 @@ class OwnedGameAdmin(CatalogAdmin):
 @admin.register(FetchJob)
 class FetchJobAdmin(CatalogAdmin):
     list_display = ("id", "kind", "status", "progress", "total", "created_at", "finished_at")
+    readonly_fields = [field.name for field in FetchJob._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Category)

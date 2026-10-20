@@ -5,7 +5,7 @@ from django.template.loader import render_to_string
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db import transaction
 from .jobs import enqueue
-from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
+from .models import CatalogRevision, Game, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh, run_scrape_rtt, run_fetch_bga
 from .utils import GameFilter, serialize_game_row, recompute_owned_flags
 from .catalog import COLUMNS, SORTABLE
@@ -15,12 +15,33 @@ from django.contrib import messages
 import csv
 
 
+def health(request, worker=False):
+    from datetime import timedelta
+    from django.db import connection
+    from django.db.utils import DatabaseError
+    from django.utils import timezone
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+        cutoff = timezone.now() - timedelta(minutes=2)
+        idle = CatalogRevision.objects.filter(worker_seen_at__gte=cutoff).exists()
+        active = FetchJob.objects.filter(status__in=['running', 'cancelling'], heartbeat_at__gte=cutoff).exists()
+        fresh = idle or active
+        return JsonResponse({'status': 'ok' if not worker or fresh else 'unavailable',
+                             'database': 'ok', 'worker': 'responding' if fresh else 'not_seen'},
+                            status=200 if not worker or fresh else 503)
+    except DatabaseError:
+        return JsonResponse({'status': 'unavailable'}, status=503)
+
+
 def home(request):
     total_games = Game.objects.count()
     last_refresh = FetchJob.objects.filter(kind='refresh').order_by('-finished_at', '-created_at').first()
     tracked_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
     
+    source_times = CatalogRevision.objects.filter(pk=1).values_list('source_updated', flat=True).first() or {}
     return render(request, 'home.html', {
+        'source_times': source_times,
         'total_games': total_games,
         'last_refresh': last_refresh,
         'tracked_users': tracked_users,

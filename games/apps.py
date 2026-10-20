@@ -15,9 +15,9 @@ class GamesConfig(AppConfig):
         def _set_sqlite_pragmas(sender, connection, **kwargs):
             if connection.vendor == 'sqlite':
                 try:
-                    cursor = connection.cursor()
-                    cursor.execute('PRAGMA journal_mode=WAL;')
-                    cursor.execute('PRAGMA synchronous=NORMAL;')
+                    with connection.cursor() as cursor:
+                        cursor.execute('PRAGMA journal_mode=WAL;')
+                        cursor.execute('PRAGMA synchronous=NORMAL;')
                 except Exception:
                     log.warning('Could not apply SQLite WAL pragmas', exc_info=True)
-        connection_created.connect(_set_sqlite_pragmas)
+        connection_created.connect(_set_sqlite_pragmas, weak=False, dispatch_uid='games.sqlite_pragmas')

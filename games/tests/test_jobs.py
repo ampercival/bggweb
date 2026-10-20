@@ -83,6 +83,19 @@ class JobLifecycleTests(TestCase):
         self.assertNotContains(response, 'id="cancelJobForm"')
         self.assertContains(response, 'Board Game Arena')
 
+    def test_real_queue_delivery_runs_managed_job(self):
+        from background_task.tasks import tasks
+        from games.tasks import run_fetch_bga
+        job = FetchJob.objects.create(kind='bga')
+        run_fetch_bga(job.pk)
+        with patch('games.tasks.BGGClient') as client:
+            client.return_value.fetch_family_members.return_value = [{'bgg_id': '123', 'title': 'Fixture'}]
+            self.assertTrue(tasks.run_next_task())
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'done')
+        self.assertFalse(Task.objects.exists())
+        self.assertIsNone(CatalogLease.objects.get(pk=1).job_id)
+
 
 class BoundedRetryTests(SimpleTestCase):
     def test_queued_collection_has_finite_attempts(self):

@@ -14,7 +14,7 @@ computed score so you can find which games play best at a given table size. Data
 
 - Language/framework: **Python 3.11+ / Django ≥ 5.2**
 - Datastore: **SQLite** by default (`db.sqlite3`), Postgres-capable via `DATABASE_URL`
-- Background work: **`django-background-tasks`** (a `process_tasks` worker — no Celery/Redis)
+- Background work: **`django-background-tasks`** (a `run_worker` worker (queue runner plus heartbeat/recovery) — no Celery/Redis)
 - External data source: BGG XML API2 (`thing`, `collection`) + the BGG ranks **CSV data-dump ZIP**
 - Frontend: server-rendered Django templates; CSS/JS live in **static files** under `static/css/` and `static/js/` (no build step, no JS framework), served by WhiteNoise
 - Static files served in production by **WhiteNoise** (`collectstatic` → compressed/hashed)
@@ -44,7 +44,7 @@ bggweb/                     # repo root
 │   ├── urls.py             # app routes
 │   ├── admin.py            # Django admin registrations
 │   ├── apps.py             # enables SQLite WAL/synchronous pragmas on connect
-│   ├── migrations/         # 0001–0008
+│   ├── migrations/         # 0001–0013
 │   └── tests/              # test package (test_sync, test_scoring, test_views, test_bgg_client,
 │                           #   test_rtt_client, test_rtt_sync, test_bga_sync)
 ├── templates/              # project-level templates (DIRS = BASE_DIR/templates)
@@ -145,8 +145,7 @@ truth for the denormalized `Game.owned`/`owned_by` fields).
 - **Scoring**: `pc_score_unadj = best%*3 + rec%*2 − notrec%*2`; "Playable" means `pc_score_unadj ≥ 150`.
   `pc_score` is that value min-max normalized to 0–10 against the **min/max across all
   player-count rows** (a stable, filter-independent scale computed from `qs_for_norm` before
-  filters are applied — see `GameFilter.get_queryset`); `score_factor = (avg_rating*3 + pc_score) / 4`. **If you change a formula, change it in BOTH `utils.py`'s
-  annotations AND `serialize_game_row` so DB-sort order matches displayed values.**
+  filters are applied — see `GameFilter.get_queryset`); `score_factor = (avg_rating*3 + pc_score) / 4`. **Keep scoring.py constants, query annotations, serialization, and product explanations consistent.**
 - **`serialize_game_row`** turns a record into the dict the templates/CSV consume.
 - `views._compute_rows_context` is the shared source for `games_list` (full page), `games_rows`
   (AJAX rows JSON), and `export_csv` — keep their columns in sync.
@@ -161,7 +160,7 @@ detail · `/export.csv`.
 Setup and run (macOS/Linux):
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-lock.txt
 python manage.py migrate
 honcho start -f Procfile.dev        # runs BOTH web + the background worker
 ```
@@ -170,7 +169,7 @@ Windows: `./start_dev.ps1` does venv + install + migrate + `honcho start -f Proc
 Run web and worker separately if you prefer:
 ```bash
 python manage.py runserver
-python manage.py process_tasks      # REQUIRED — background jobs do nothing without this
+python manage.py run_worker      # REQUIRED — background jobs do nothing without this
 ```
 
 Common commands:
@@ -211,6 +210,16 @@ export (`test_views.py`), and the BGG client parsing of the ranks ZIP / `thing` 
 XML (`test_bgg_client.py`). View tests use `@override_settings(SECURE_SSL_REDIRECT=False)` because
 the suite runs with `DEBUG=False`. Run with `python manage.py test games`.
 
+## Improvement architecture (October 2026)
+
+- `games/filters.py` canonicalizes all catalog input. `games/queries.py` owns GameFilter; `utils.py` keeps compatibility imports and serialization/ownership helpers.
+- `games/catalog.py` defines table and CSV columns; `games/scoring.py` defines the published scoring weights. Preserve sorting/display/export agreement.
+- `games/jobs.py` claims work and holds the shared writer lease. Never reset a claimed job to running or bypass cancellation checks. Only terminal history may be cleared.
+- Full refresh stages all remote details in memory, validates coverage, then calls `_sync_catalog` in one database-only transaction. The older `_sync_refresh_chunk` helper remains for compatibility/tests; it is not the active refresh path.
+- All application/catalog writes must invalidate `catalog_cache` inside the transaction; supported admin changes do so. Custom bulk scripts must explicitly invalidate.
+- Locked dependencies, health endpoints, backup/restore and deployment acceptance are documented in README.md and docs/OPERATIONS.md. Tests include optional real-browser checks under browser_tests/.
+- Validate UTF-8 encoding and run collectstatic after asset edits. Use explicit UTF-8 when editing with Python on Windows.
+
 ## Conventions & Gotchas
 
 - **Tests live in `games/tests/`** and run via `python manage.py test games` (also in CI). Add new
@@ -221,7 +230,7 @@ the suite runs with `DEBUG=False`. Run with `python manage.py test games`.
 - **A refresh prunes.** `run_fetch_top_n` and `run_refresh` delete games not in the fetched set. The
   ranks ZIP link **expires** — failures there usually mean a stale data-dump URL, not a code bug.
 - **Always run the worker.** Jobs created in the DB stay `pending` until `process_tasks` is running.
-- **Two sync paths still exist:** `_sync_catalog` (top_n/collection) and `_sync_refresh_chunk`
+- **Historical sync helper:** `_sync_catalog` (top_n/collection) and `_sync_refresh_chunk`
   (refresh). They now share `_apply_relations` / `_sync_player_counts`, but the orchestration differs;
   a behavioral fix may still belong in both — `test_sync.py` exercises each.
 - **SQLite is in WAL mode** (set in `games/apps.py`) for better job/web concurrency.

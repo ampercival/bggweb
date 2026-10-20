@@ -20,6 +20,7 @@ $DevUrl = "http://127.0.0.1:$Port/"
 if (-not (Test-Path ".venv")) {
     Write-Host "Creating virtual environment..."
     python -m venv .venv
+    if ($LASTEXITCODE -ne 0) { throw "Virtual environment creation failed." }
 }
 
 # Activate venv
@@ -28,7 +29,8 @@ Write-Host "Activating virtual environment..."
 
 # Install dependencies (quiet: only show problems, not the full satisfied list)
 Write-Host "Installing dependencies..."
-pip install --quiet --disable-pip-version-check -r requirements.txt
+python -m pip install --quiet --disable-pip-version-check -r requirements-lock.txt
+if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
 
 # Enable development settings for this session (DEBUG defaults to False so the
 # app is production-safe; turn it on here so local runs work out of the box).
@@ -50,6 +52,7 @@ $env:DJANGO_ALLOWED_HOSTS = (@('localhost', '127.0.0.1') + $LanIps) -join ','
 # Run migrations
 Write-Host "Running migrations..."
 python manage.py migrate
+if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
 
 # Open the browser shortly after the server has had time to start. Honcho runs
 # in the foreground below, so do this from a background job.
@@ -67,3 +70,4 @@ foreach ($ip in $LanIps) {
     Write-Host "  Network: http://${ip}:$Port/  (open this on other devices)"
 }
 honcho start -f Procfile.dev
+if ($LASTEXITCODE -ne 0) { throw "Development server or worker exited with an error." }

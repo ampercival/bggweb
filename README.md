@@ -1,101 +1,85 @@
-# bggweb
+# BGG Player Count Optimizer
 
-A small Django web app that fetches BoardGameGeek (BGG) data (Top N list, optional user-owned collection, and per-game details/polls), stores it locally, and presents a fast, filterable view with CSV export. Jobs run in the background with live, multi-phase progress (Top N → Collection → Details → Apply).
+A Django app for choosing board games by group size, BGG ratings, player-count poll evidence, tracked collections, and Board Game Arena / Rally the Troops availability. Catalog browsing does not require an account; importing and administration require a superuser.
 
 ## Features
-- Top N fetch: Scrapes the BGG Top N list.
-- Collection merge: Optionally pulls a user’s owned collection and marks overlap as Owned.
-- Batched details: Fetches per-game details and player-count poll data in batches.
-- Durable storage: Persists games, categories, families, and player-count recommendations to SQLite by default.
-- Job progress UI: Shows overall progress and per-phase status (Top N, Collection, Details, Apply) with elapsed/ETA.
-- Filtering and CSV: Browse and filter games, then export the table as CSV.
 
-## Requirements
-- Python 3.11+ (3.10+ likely fine)
-- Django >= 5.2
-- requests >= 2.31
-- whitenoise >= 6.6 (static files in production)
+- Ranked games from a BGG ranks CSV ZIP, plus tracked users' owned collections.
+- Validated, staged imports: remote failures preserve the existing catalog; database application rolls back on failure.
+- A separate database-backed worker with progress, cancellation, retry, heartbeat and stale-job recovery.
+- Shareable filters, live sorting/pagination and CSV export of the full filtered result.
+- A compact mobile catalog with optional detailed columns, poll-vote thresholds and score explanations.
+- Exact and open-ended player-count polls; a separate browse view for games without polls.
+- SQLite with WAL by default; a PostgreSQL integration suite in CI.
 
-See `requirements.txt` for the full list.
+## Local setup (Python 3.11 or 3.12)
 
-## Quickstart
-1) Create and activate a virtual environment
+Windows users can run `./start_dev.ps1`. It installs locked runtime dependencies, enables development settings, migrates and starts both web and worker on port 8471. It also enables access from the trusted local network; use the loopback-only commands below when LAN access is unnecessary.
 
-- Windows (PowerShell)
-```
+For manual PowerShell setup, configure development mode **before migrations**:
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-- macOS/Linux
-```
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-2) Install dependencies
-```
-pip install -r requirements.txt
-```
-
-3) Run migrations
-```
+python -m pip install -r requirements-dev-lock.txt
+$env:DJANGO_DEBUG = 'True'
 python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver 127.0.0.1:8471
 ```
 
-4) Start the dev server
+In a second activated terminal, with the same environment settings:
 
-`DJANGO_DEBUG` defaults to `False` (a safe production posture), so enable it for local development.
-The `honcho`/`start_dev.ps1` dev flow serves on port **8471** (see `Procfile.dev`); a bare
-`runserver` still uses Django's default 8000 unless you pass a port:
-```
-# macOS/Linux
-DJANGO_DEBUG=True python manage.py runserver 0.0.0.0:8471
-# or add DJANGO_DEBUG=True to a local .env file
+```powershell
+python manage.py run_worker
 ```
 
-**Access from other devices (LAN):** the dev server binds `0.0.0.0`, so it is reachable at
-`http://<this-machine-LAN-IP>:8471/` from phones/laptops on the same network. `start_dev.ps1` prints
-the exact `Network:` URL(s) and adds your LAN IP to `ALLOWED_HOSTS` automatically. Running `runserver`
-by hand instead? Set `DJANGO_ALLOWED_HOSTS` to include that IP (e.g. `192.168.2.59`).
+On macOS/Linux activate with `source .venv/bin/activate` and use `export DJANGO_DEBUG=True`. `honcho start -f Procfile.dev` runs web and worker together (the development Procfile binds to the local network).
 
-5) Open the app
-- Navigate to http://127.0.0.1:8471/ (honcho/start_dev) or http://127.0.0.1:8000/ (bare runserver)
-- From Home, start a job:
-  - Top N: fetches the current Top N games
-  - Collection: fetches a user’s owned collection
-  - Refresh: Top N (+ optional collection) → batched details → apply to DB
-- Click into the job to watch phase progress.
-- After completion, use View Games and Export CSV.
+Copy `.env.example` to `.env` for persistent local configuration. `.env` is ignored. Production mode is the default and requires a real `DJANGO_SECRET_KEY` and allowed hosts. Sign in through `/admin/login/`, then open `/refresh/`.
 
-## Data Model (brief)
-- `Game`: Core game info plus categories and families (many-to-many)
-- `PlayerCountRecommendation`: Per-player-count poll stats and derived scores
-- `Collection`/`OwnedGame`: Optional user-owned relationships
-- `FetchJob`: Tracks background job status, overall progress, and phase details
+## Importing data
 
-## Background Jobs
-Jobs run in a background thread (no Celery required). The job page polls for status and shows:
-- Top N: scrape progress
-- Collection: owned items progress
-- Details: processed/total with batch size
-- Apply: database apply/commit step (single atomic transaction)
+1. Configure `BGG_API_TOKEN` for authenticated BGG API access. A valid token is needed for endpoints that reject anonymous requests.
+2. Get a fresh "Click to Download" ranks ZIP link from [BGG's data dump page](https://boardgamegeek.com/data_dumps/bg_ranks). Links expire; a retry may need a new link.
+3. Add tracked BGG usernames and start a full refresh. Zero for Top N explicitly means all ranked CSV entries.
+4. Follow the job page. All details are fetched and validated before applying data. Partial/error responses cannot prune the catalog.
 
-## Configuration
-No API keys are required. Defaults to a local SQLite database (`db.sqlite3`). You can switch to Postgres/MySQL by updating `bggweb/settings.py`.
+Top N refreshes preserve collection-only games. Full refreshes reconcile tracked collections and prune untracked data only after successful retrieval. Platform availability continues to appear in the availability filter. Poll buckets previously discarded by older versions appear after the next successful import.
 
-## Development Tips
-- Don’t commit local DB/venv: `.gitignore` excludes `db.sqlite3`, `.venv/`, etc.
-- If you tweak polling or batch size, see `games/tasks.py` and `templates/job_detail.html`.
-- Run the tests with `python manage.py test games` (also run in CI via `.github/workflows/ci.yml`).
-- Before deploying, run `python manage.py collectstatic`; WhiteNoise serves the result.
+The in-memory staging and final atomic apply are intended for this small catalog. Benchmark substantially larger installations with `python scripts/benchmark_import.py` before increasing import scope.
+
+## Checks
+
+```powershell
+python manage.py test games
+python -m ruff check .
+python manage.py makemigrations games --check --dry-run
+python manage.py collectstatic --noinput
+```
+
+Optional browser acceptance uses disposable test data:
+
+```powershell
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+python manage.py test browser_tests
+```
+
+CI runs the backend suite on Python 3.11/3.12 and PostgreSQL, production settings/static checks, real browser workflows and a dependency advisory audit. Browser screenshots are retained as CI artifacts.
+
+Use `requirements-lock.txt` for runtime installs and `requirements-dev-lock.txt` for development/CI. `requirements.txt` declares supported dependency ranges. When updating dependencies, resolve in a clean environment, regenerate the lock, run checks and the audit, then review the changes. Do not freeze unrelated packages from a shared environment.
+
+## Operations
+
+- `/health/`: web/database readiness; does not require an idle worker.
+- `/health/worker/`: 200 when a worker heartbeat is recent, otherwise 503.
+- `python manage.py recover_jobs`: fail jobs without a heartbeat for 15 minutes and release their lease. `run_worker` runs recovery at startup.
+- `python manage.py backup_catalog backups/catalog-YYYY-MM-DD.sqlite3`: creates a new verified SQLite backup; refuses to overwrite existing files.
+- See [operations and restore instructions](docs/OPERATIONS.md), [review and plan](docs/PROJECT_REVIEW_AND_PLAN.md), and [implementation evidence](docs/IMPLEMENTATION_PROGRESS.md).
+
+Keep web and worker on the same authoritative database. Verify persistent storage, backups and HTTPS in the actual deployment; a Procfile alone does not configure or prove those properties.
 
 ## License
-This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0) License.
 
-- See the full text in `LICENSE`.
-- Summary: You may share and adapt with attribution for noncommercial purposes. No additional restrictions may be applied. For details, refer to the legal code.
-
----
-
-### Suggested GitHub Description
-Django app for fetching and browsing BoardGameGeek data with background jobs, detailed phase progress, and CSV export.
+[CC BY-NC 4.0](LICENSE): attribution required; noncommercial use only.

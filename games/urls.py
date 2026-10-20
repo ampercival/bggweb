@@ -4,6 +4,8 @@ from . import views
 
 
 urlpatterns = [
+    path('health/', views.health, name='health'),
+    path('health/worker/', views.health, {'worker': True}, name='worker_health'),
     path('', views.home, name='home'),
     path('logout/', LogoutView.as_view(next_page='home'), name='logout'),
     path('refresh/', views.refresh, name='refresh'),
