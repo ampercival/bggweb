@@ -54,3 +54,12 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 
 - Final failure-boundary check: catalog writes, the job's completion record and successful-source timestamp now commit together. A new regression verifies that a failed completion write rolls back the catalog as well. Backend suite: 94 passing tests.
 - A verified online backup of the current 10,093-game local catalog was created at `backups/catalog-2026-10-20-reviewed.sqlite3` (git-ignored). No source refresh was run.
+
+## Final acceptance
+
+- Code commit `839270a` passed every expanded CI job: SQLite on Python 3.11 and 3.12, PostgreSQL 16, all three real-browser workflows, production settings/static checks, and dependency audit. CI: https://github.com/ampercival/bggweb/actions/runs/39509560006 . The Pages documentation build/deployment also passed: https://github.com/ampercival/bggweb/actions/runs/39509558794 .
+- Backend suite: 94 tests. Browser suite: three workflows covering multi-mechanic selection/reload/filtered CSV, 390 x 844 layout/detailed-column toggle, and polling recovery/new error rendering. PostgreSQL skips the SQLite-specific backup drill by design.
+- Final populated local phone check: results section starts at about y=623, first row at y=949 (one short scroll), seven visible columns and no page-wide overflow, compared with the original results starting near y=2,463. Production-style hashed assets and locked Django 5.2.18 were used.
+- Local migrations, static collection, production checks and PowerShell launcher syntax passed. A verified local catalog backup exists in the ignored backups folder. CI screenshots are saved in ignored `artifacts/browser-final`.
+- The roadmap's persistence/actual-host verification item stays open: the configured production host/database volume, live BGG token/source refresh, off-host backup arrangements and real production restore have not been verified or provisioned. GitHub Pages serves documentation and cannot run this Django application.
+- Local presets and a separate game-night view were considered and deferred until feedback on the simpler core catalog. Browsing remains account-free. Import application keeps focused bulk helpers in tasks.py; query, validation, scoring, job lifecycle and cache/column contracts have separate modules.

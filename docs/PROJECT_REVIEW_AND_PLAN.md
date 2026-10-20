@@ -2,6 +2,8 @@
 
 Reviewed: October 20, 2026. Baseline: `fe996f7`.
 
+Implementation status: completed code/checks are marked below; see [validation and commit evidence](IMPLEMENTATION_PROGRESS.md). Hosting persistence and live-source deployment acceptance remain unverified.
+
 ## Overall assessment
 
 The project has a useful, focused purpose: help someone choose a board game for a particular group size using BGG ratings, player-count polls, tracked collections, and online availability. Django, server-rendered templates, plain JavaScript, and a database-backed worker are appropriate for this size of application. Keep that architecture.
@@ -157,70 +159,70 @@ Effort is relative: S = small focused change; M = several connected changes; L =
 
 ### Phase 1 — Protect the catalog and its ownership data (L)
 
-- [ ] Add regression cases for failed apply after prune, incomplete detail batches, API error envelopes, partial RTT results, failed collection fetches, and ownership/tag preservation.
-- [ ] Define source-result completeness and distinguish valid empty collections from failed retrievals.
-- [ ] Stage streamed refresh payloads; validate them before touching the live catalog or purging ownership.
-- [ ] Apply validated database updates and cleanup atomically, with no network I/O inside the transaction. Measure SQLite lock duration on a representative import before accepting the design.
-- [ ] Make replacement scope explicit for Top N versus combined refresh; prevent unintended deletion of collection-only games.
-- [ ] Add database uniqueness for `(collection, game)` after deduplicating existing rows safely.
+- [x] Add regression cases for failed apply after prune, incomplete detail batches, API error envelopes, partial RTT results, failed collection fetches, and ownership/tag preservation.
+- [x] Define source-result completeness and distinguish valid empty collections from failed retrievals.
+- [x] Stage streamed refresh payloads; validate them before touching the live catalog or purging ownership.
+- [x] Apply validated database updates and cleanup atomically, with no network I/O inside the transaction. Measure SQLite lock duration on a representative import before accepting the design.
+- [x] Make replacement scope explicit for Top N versus combined refresh; prevent unintended deletion of collection-only games.
+- [x] Add database uniqueness for `(collection, game)` after deduplicating existing rows safely.
 
 Acceptance: simulated failure or cancellation leaves the previous valid catalog, polls and ownership intact; incomplete source responses cannot trigger pruning; successful reruns are idempotent; platform tags remain consistent. Imports at the current catalog size do not cause unacceptable web timeouts or lock failures.
 
 ### Phase 2 — Make job execution recoverable and understandable (M–L; depends on Phase 1)
 
-- [ ] Centralize transitions and atomically claim pending work; honor cancellation before starting.
-- [ ] Bound collection retries and total waiting time; check cancellation during waits and requests.
-- [ ] Limit clear-history to terminal jobs; coordinate queue rows and tolerate missing/duplicate delivery safely.
-- [ ] Add a catalog mutation lock, heartbeat timestamps, stale-job detection and a documented retry/resume policy.
-- [ ] Keep enqueueing and job creation consistent, and classify transient versus permanent failures.
-- [ ] Render job-specific phases, live error text, finished times and worker/polling health; hide unauthorized controls.
+- [x] Centralize transitions and atomically claim pending work; honor cancellation before starting.
+- [x] Bound collection retries and total waiting time; check cancellation during waits and requests.
+- [x] Limit clear-history to terminal jobs; coordinate queue rows and tolerate missing/duplicate delivery safely.
+- [x] Add a catalog mutation lock, heartbeat timestamps, stale-job detection and a documented retry/resume policy.
+- [x] Keep enqueueing and job creation consistent, and classify transient versus permanent failures.
+- [x] Render job-specific phases, live error text, finished times and worker/polling health; hide unauthorized controls.
 
 Acceptance: cancelled queued jobs perform no fetch or mutation; clearing history leaves active work intact; worker termination is detected; retrying a job does not duplicate or corrupt data; two workers cannot apply competing catalog replacements; terminal failures are visible without page reload.
 
 ### Phase 3 — Make filters, sorting and export agree (M; small pieces can proceed independently)
 
-- [ ] Fix repeated mechanic serialization and add a browser regression reproducing the two-checkbox case.
-- [ ] Normalize all filter inputs server-side, including finite numbers, bounds and reversed ranges.
-- [ ] Ignore superseded AJAX responses and preserve the last valid results when loading fails.
-- [ ] Fix playable sorting, add deterministic game/count tie-breakers, repair fallback links, and unify reset defaults.
-- [ ] Configure working sign-in redirects for privileged pages/actions.
-- [ ] Connect filtered export to current state and define a shared table/export column schema.
-- [ ] Decide and implement consistent facet-count semantics, including live updates.
+- [x] Fix repeated mechanic serialization and add a browser regression reproducing the two-checkbox case.
+- [x] Normalize all filter inputs server-side, including finite numbers, bounds and reversed ranges.
+- [x] Ignore superseded AJAX responses and preserve the last valid results when loading fails.
+- [x] Fix playable sorting, add deterministic game/count tie-breakers, repair fallback links, and unify reset defaults.
+- [x] Configure working sign-in redirects for privileged pages/actions.
+- [x] Connect filtered export to current state and define a shared table/export column schema.
+- [x] Decide and implement consistent facet-count semantics, including live updates.
 
 Acceptance: multiple selections survive live updates, reload, shared URLs and CSV export; malformed query values do not produce 500s; quick filter changes cannot display old responses; browser and CSV agree on rows and column meaning; page and reset defaults match; anonymous protected-route redirects reach a real login page.
 
 ### Phase 4 — Make choosing a game easier (M; depends on stable filter behavior)
 
-- [ ] Move player count and availability above taxonomy filters; show active-filter chips and result count nearby.
-- [ ] On phones, collapse advanced filters and stack the heading/count layout; show results within the first screen or one short scroll.
-- [ ] Default to compact columns: game, players, score, rating, weight, poll votes, availability. Keep the full data table available.
-- [ ] Add score explanations, poll-vote minimum, missing-data indicators, and separate labels for owned copies versus online availability while retaining platform filter shortcuts.
-- [ ] Represent open-ended polls explicitly rather than silently dropping them; distinguish “no poll data” from “not recommended.”
-- [ ] Improve keyboard focus, table-region labeling, loading/error announcements, and selected-filter visibility.
-- [ ] Consider local saved presets and a shareable game-night view after these core improvements work. Keep browsing account-free.
+- [x] Move player count and availability above taxonomy filters; show active-filter chips and result count nearby.
+- [x] On phones, collapse advanced filters and stack the heading/count layout; show results within the first screen or one short scroll.
+- [x] Default to compact columns: game, players, score, rating, weight, poll votes, availability. Keep the full data table available.
+- [x] Add score explanations, poll-vote minimum, missing-data indicators, and separate labels for owned copies versus online availability while retaining platform filter shortcuts.
+- [x] Represent open-ended polls explicitly rather than silently dropping them; distinguish “no poll data” from “not recommended.”
+- [x] Improve keyboard focus, table-region labeling, loading/error announcements, and selected-filter visibility.
+- [x] Consider local saved presets and a shareable game-night view after these core improvements work. Keep browsing account-free.
 
 Acceptance: at 390 × 844, a user can select a group size and inspect useful results without passing a full expanded filter wall; keyboard operation works; one-vote recommendations are clearly identified; scoring explanations match displayed and sorted values; the detailed view/export remain available.
 
 ### Phase 5 — Reduce unnecessary work and separate responsibilities (M)
 
-- [ ] Measure representative default, owner, category and mechanic queries before and after changes.
-- [ ] Split row retrieval from expensive facet calculation; return current facets when needed rather than computing and discarding them.
-- [ ] Cache global normalization/facet data with explicit successful-import invalidation; preserve filter-independent score behavior.
-- [ ] Separate validation, catalog queries, scoring definitions, import application and job lifecycle into focused modules. Preserve the bulk sync approach and shared helpers across both import paths.
-- [ ] Consolidate column metadata so templates, sorting, serialization and exports cannot drift independently.
+- [x] Measure representative default, owner, category and mechanic queries before and after changes.
+- [x] Split row retrieval from expensive facet calculation; return current facets when needed rather than computing and discarding them.
+- [x] Cache global normalization/facet data with explicit successful-import invalidation; preserve filter-independent score behavior.
+- [x] Separate validation, catalog queries, scoring definitions, import application and job lifecycle into focused modules. Preserve the bulk sync approach and shared helpers across both import paths.
+- [x] Consolidate column metadata so templates, sorting, serialization and exports cannot drift independently.
 
 Acceptance: query cost stays bounded as page size grows; the no-N+1 test remains green; representative live updates improve measurably without stale facets or scores; sorted values match displayed values; only measured bottlenecks drive further database/index changes.
 
 ### Phase 6 — Make setup, deployment and recovery repeatable (S–M)
 
-- [ ] Rewrite README setup with environment configuration before migration, superuser creation, ranks ZIP acquisition, token configuration, and separate web/worker startup.
-- [ ] Make the Windows launcher stop on failed native commands using explicit exit-code checks; document loopback versus trusted-LAN development.
-- [ ] Add a production-settings CI smoke check, focused browser scenarios, and ownership/import integrity regressions. Run PostgreSQL integration checks if PostgreSQL support is to be advertised.
-- [ ] Record reproducible dependency versions and establish reviewed updates/security checks.
+- [x] Rewrite README setup with environment configuration before migration, superuser creation, ranks ZIP acquisition, token configuration, and separate web/worker startup.
+- [x] Make the Windows launcher stop on failed native commands using explicit exit-code checks; document loopback versus trusted-LAN development.
+- [x] Add a production-settings CI smoke check, focused browser scenarios, and ownership/import integrity regressions. Run PostgreSQL integration checks if PostgreSQL support is to be advertised.
+- [x] Record reproducible dependency versions and establish reviewed updates/security checks.
 - [ ] Document persistent storage for the actual hosting arrangement. If web and worker are separate services, confirm they share one authoritative database.
-- [ ] Add a small health/readiness surface and worker heartbeat visibility without exposing credentials or internal errors.
-- [ ] Document and test database backup/restore, migrations, static collection, and worker startup/restart.
-- [ ] Show last successful source fetch times separately from job attempts and general record updates.
+- [x] Add a small health/readiness surface and worker heartbeat visibility without exposing credentials or internal errors.
+- [x] Document and test database backup/restore, migrations, static collection, and worker startup/restart.
+- [x] Show last successful source fetch times separately from job attempts and general record updates.
 
 Acceptance: a fresh Windows setup can browse and complete a mocked import from the documented steps; CI exercises development and production configuration; a backup is restored into a disposable database and checked; worker unavailability is visible; the deployment's persistence and database sharing are verified rather than assumed.
 
