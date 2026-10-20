@@ -21,6 +21,7 @@
   </div>
   <div class="job-actions">
     <span class="status-chip" id="statusChip">{{ job.status|title }}</span>
+    {% if request.user.is_superuser %}
     <form id="cancelJobForm" action="{% url 'cancel_job' job.id %}" method="post"
       {% if job_status != 'pending' and job_status != 'running' %}style="display:none;"{% endif %}>
       {% csrf_token %}
@@ -28,6 +29,7 @@
         Cancel job
       </button>
     </form>
+    {% endif %}
     <span class="status-chip cancelling-chip" id="cancellingChip"
       {% if job_status != 'cancelling' %}style="display:none;"{% endif %}>
       Cancelling...
@@ -62,128 +64,34 @@
   <p class="note">This page refreshes automatically to keep you up to date on background processing.</p>
 </div>
 
-{% with phases=phase_context %}
+<p id="connectionNotice" class="note" role="status" aria-live="polite">{{ state.worker_notice }}</p>
 <section class="page-section">
-  <h2 style="margin-bottom: 1rem;">Phases</h2>
+  <h2>Phases</h2>
   <div class="phases-grid">
-    {% with phase=phases.top_n %}
-    <article class="phase-card" data-phase="top_n" data-start="{{ phase.started_at|default:'' }}"
+    {% for key, phase in phase_cards %}
+    <article class="phase-card" data-phase="{{ key }}" data-start="{{ phase.started_at|default:'' }}"
       data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
       data-total="{{ phase.total|default:0 }}">
-      <header>
-        <h3>Top N</h3>
-        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
-      </header>
+      <header><h3>{{ phase.label }}</h3><span data-role="status">{{ phase.status|title }}</span></header>
       <dl>
-        <div>
-          <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt>Elapsed</dt>
-          <dd data-role="elapsed">--</dd>
-        </div>
-        <div>
-          <dt>ETA</dt>
-          <dd data-role="eta">--</dd>
-        </div>
+        <div><dt>Progress</dt><dd data-role="progress">{{ phase.progress|default:0 }} / {{ phase.total|default:0 }}</dd></div>
+        <div><dt>Elapsed</dt><dd data-role="elapsed">--</dd></div>
+        <div><dt>ETA</dt><dd data-role="eta">--</dd></div>
       </dl>
-      <p class="phase-meta" data-role="extra">{% if phase.batch %}Batch size: {{ phase.batch }}{% else %}&nbsp;{% endif %}</p>
+      <p class="phase-meta" data-role="extra"></p>
     </article>
-    {% endwith %}
-
-    {% with phase=phases.collection %}
-    <article class="phase-card" data-phase="collection" data-start="{{ phase.started_at|default:'' }}"
-      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
-      data-total="{{ phase.total|default:0 }}">
-      <header>
-        <h3>Collections</h3>
-        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
-      </header>
-      <dl>
-        <div>
-          <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt>Elapsed</dt>
-          <dd data-role="elapsed">--</dd>
-        </div>
-        <div>
-          <dt>ETA</dt>
-          <dd data-role="eta">--</dd>
-        </div>
-      </dl>
-      <p class="phase-meta" data-role="extra">{% if phase.items %}Items synced: {{ phase.items }}{% else %}&nbsp;{% endif %}</p>
-    </article>
-    {% endwith %}
-
-    {% with phase=phases.details %}
-    <article class="phase-card" data-phase="details" data-start="{{ phase.started_at|default:'' }}"
-      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
-      data-total="{{ phase.total|default:0 }}">
-      <header>
-        <h3>Details</h3>
-        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
-      </header>
-      <dl>
-        <div>
-          <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt>Elapsed</dt>
-          <dd data-role="elapsed">--</dd>
-        </div>
-        <div>
-          <dt>ETA</dt>
-          <dd data-role="eta">--</dd>
-        </div>
-      </dl>
-      <p class="phase-meta" data-role="extra">{% if phase.batch %}Batch size: {{ phase.batch }}{% else %}&nbsp;{% endif %}</p>
-    </article>
-    {% endwith %}
-
-    {% with phase=phases.cleanup %}
-    <article class="phase-card" data-phase="cleanup" data-start="{{ phase.started_at|default:'' }}"
-      data-finish="{{ phase.finished_at|default:'' }}" data-progress="{{ phase.progress|default:0 }}"
-      data-total="{{ phase.total|default:1 }}">
-      <header>
-        <h3>Cleanup</h3>
-        <span class="phase-status" data-role="status">{{ phase.status|default:'pending'|title }}</span>
-      </header>
-      <dl>
-        <div>
-          <dt>Progress</dt>
-          <dd data-role="progress">{{ phase.progress|default:0 }}{% if phase.total %} / {{ phase.total }}{% endif %}
-          </dd>
-        </div>
-        <div>
-          <dt>Elapsed</dt>
-          <dd data-role="elapsed">--</dd>
-        </div>
-        <div>
-          <dt>ETA</dt>
-          <dd data-role="eta">--</dd>
-        </div>
-      </dl>
-      <p class="phase-meta" data-role="extra">&nbsp;</p>
-    </article>
-    {% endwith %}
+    {% endfor %}
   </div>
 </section>
-{% endwith %}
-
-{% if job.error %}
-<section class="page-section">
-  <div class="job-panel">
-    <h2>Last error</h2>
-    <pre class="job-error">{{ job.error }}</pre>
-  </div>
+<section id="jobErrorPanel" class="page-section" {% if not job.error %}hidden{% endif %} role="alert">
+  <div class="job-panel"><h2>Last error</h2><pre id="jobError" class="job-error">{{ job.error|default:'' }}</pre></div>
 </section>
+{% if request.user.is_superuser %}
+<form id="retryJobForm" method="post" action="{% url 'retry_job' job.id %}"
+  {% if job.status != 'error' and job.status != 'cancelled' %}hidden{% endif %}>
+  {% csrf_token %}<button class="button secondary" type="submit">Retry as a new job</button>
+  <p class="note">Ranks download links may expire. Start a fresh import with a new link if needed.</p>
+</form>
 {% endif %}
 {% endblock %}
 

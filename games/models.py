@@ -149,6 +149,12 @@ class FetchJob(models.Model):
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Job({self.id}) {self.kind} {self.status}"
+
+
+class CatalogLease(models.Model):
+    """Singleton lease; shared by every process using the catalog database."""
+    job = models.ForeignKey(FetchJob, null=True, blank=True, on_delete=models.SET_NULL)

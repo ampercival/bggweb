@@ -21,6 +21,7 @@ from .services.bgg_client import BGGClient, BGA_FAMILY_ID
 from .services.rtt_client import RTTClient
 from .utils import recompute_owned_flags
 from .db import bulk_update
+from .jobs import JobCancelled, check_job, managed_job
 
 log = logging.getLogger(__name__)
 
@@ -31,10 +32,6 @@ BGA_OWNER_LABEL = "Board Game Arena"
 # Collections that are managed by platform scrapes (not tracked BGG users) and
 # must survive refresh pruning.
 PLATFORM_OWNER_LABELS = {RTT_OWNER_LABEL, BGA_OWNER_LABEL}
-
-
-class JobCancelled(Exception):
-    pass
 
 
 def _validate_details(ids, details, counts):
@@ -679,26 +676,25 @@ def _prune_games_after_refresh(desired_ids):
 
 
 @background(schedule=0)
+@managed_job
 def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
-    job.status = "running"
     job.progress = 0
     job.total = n
     params = dict(job.params or {})
     if ranks_zip_url:
         params['zip_url'] = ranks_zip_url
     job.params = params
-    job.save(update_fields=['status', 'progress', 'total', 'params'])
+    job.save(update_fields=['progress', 'total', 'params'])
     log.info('Job %s: starting Top N fetch (n=%s)', job.id, n)
 
     def check_cancel():
-        job.refresh_from_db(fields=['status'])
-        if job.status == 'cancelling':
-            raise JobCancelled()
+        check_job(job)
 
     ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
+    client.check_cancelled = lambda: check_job(job)
     try:
         check_cancel()
         if not ranks_zip_url:
@@ -745,19 +741,18 @@ def run_fetch_top_n(job_id: int, n: int, ranks_zip_url: str | None = None):
 
 
 @background(schedule=0)
+@managed_job
 def run_fetch_collection(job_id: int, username: str):
     job = FetchJob.objects.get(id=job_id)
-    job.status = "running"
     job.progress = 0
-    job.save(update_fields=["status", "progress"])
+    job.save(update_fields=["progress"])
     log.info('Job %s: starting collection fetch for user %s', job.id, username)
 
     def check_cancel():
-        job.refresh_from_db(fields=['status'])
-        if job.status == 'cancelling':
-            raise JobCancelled()
+        check_job(job)
 
     client = BGGClient()
+    client.check_cancelled = lambda: check_job(job)
     try:
         check_cancel()
         log.info('Job %s: requesting owned collection for %s', job.id, username)
@@ -809,9 +804,9 @@ def run_fetch_collection(job_id: int, username: str):
 
 
 @background(schedule=0)
+@managed_job
 def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: int, ranks_zip_url: str | None = None):
     job = FetchJob.objects.get(id=job_id)
-    job.status = "running"
     job.progress = 0
     job.total = n
 
@@ -848,17 +843,16 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
         "cleanup": {"status": "pending", "progress": 0, "total": 1},
     }
     job.params = params
-    job.save(update_fields=["status", "progress", "total", "params"])
+    job.save(update_fields=["progress", "total", "params"])
     log.info('Job %s: starting refresh (n=%s, usernames=%s, batch=%s)', job.id, n, ','.join(normalized_usernames) or '-', batch_size)
 
     ranks_zip_url = params.get('zip_url')
 
     client = BGGClient()
+    client.check_cancelled = lambda: check_job(job)
     try:
         def check_cancel():
-            job.refresh_from_db(fields=['status'])
-            if job.status == 'cancelling':
-                raise JobCancelled()
+            check_job(job)
 
         if not ranks_zip_url:
             raise RuntimeError('A ranks ZIP URL must be provided to fetch ranked games.')
@@ -1124,18 +1118,16 @@ def run_refresh(job_id: int, n: int, usernames: list[str] | None, batch_size: in
 
 
 @background(schedule=0)
+@managed_job
 def run_scrape_rtt(job_id: int):
     job = FetchJob.objects.get(id=job_id)
-    job.status = "running"
     job.progress = 0
     job.total = 0
-    job.save(update_fields=["status", "progress", "total"])
+    job.save(update_fields=["progress", "total"])
     log.info('Job %s: starting Rally the Troops scrape', job.id)
 
     def check_cancel():
-        job.refresh_from_db(fields=['status'])
-        if job.status == 'cancelling':
-            raise JobCancelled()
+        check_job(job)
 
     last_save = 0.0
 
@@ -1151,6 +1143,7 @@ def run_scrape_rtt(job_id: int):
             last_save = now_ts
 
     client = RTTClient()
+    client.check_cancelled = lambda: check_job(job)
     try:
         check_cancel()
         games = client.fetch_games(on_progress=on_progress, check_cancelled=check_cancel)
@@ -1206,22 +1199,20 @@ def run_scrape_rtt(job_id: int):
 
 
 @background(schedule=0)
+@managed_job
 def run_fetch_bga(job_id: int, family_id: str | None = None):
     job = FetchJob.objects.get(id=job_id)
-    job.status = "running"
     job.progress = 0
     job.total = 0
     params = dict(job.params or {})
     family_id = family_id or params.get('family_id') or BGA_FAMILY_ID
     params['family_id'] = family_id
     job.params = params
-    job.save(update_fields=["status", "progress", "total", "params"])
+    job.save(update_fields=["progress", "total", "params"])
     log.info('Job %s: starting Board Game Arena family fetch (family=%s)', job.id, family_id)
 
     def check_cancel():
-        job.refresh_from_db(fields=['status'])
-        if job.status == 'cancelling':
-            raise JobCancelled()
+        check_job(job)
 
     last_save = 0.0
 
@@ -1237,6 +1228,7 @@ def run_fetch_bga(job_id: int, family_id: str | None = None):
             last_save = now_ts
 
     client = BGGClient()
+    client.check_cancelled = lambda: check_job(job)
     try:
         check_cancel()
         games = client.fetch_family_members(family_id, on_progress=on_progress)

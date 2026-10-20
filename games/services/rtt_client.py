@@ -96,7 +96,14 @@ class RTTClient:
         self.throttle_sec = throttle_sec if throttle_sec is not None else 1.0
 
     def _sleep(self, seconds: float | None = None):
-        time.sleep(seconds if seconds is not None else self.throttle_sec)
+        remaining = max(0, seconds if seconds is not None else self.throttle_sec)
+        while remaining > 0:
+            callback = getattr(self, 'check_cancelled', None)
+            if callback:
+                callback()
+            step = min(remaining, 1.0)
+            time.sleep(step)
+            remaining -= step
 
     def _get(self, url: str, *, max_retries: int = 4, backoff: float = 2.0) -> requests.Response:
         retries = 0

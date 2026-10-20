@@ -11,3 +11,10 @@ The baseline review and acceptance criteria are in [PROJECT_REVIEW_AND_PLAN.md](
 
 No real catalog refreshes or external scrapes are run as part of automated validation.
 - Final disposable SQLite benchmark: initial 2.807 s, unchanged 2.114 s, all ratings/poll votes changed 3.032 s. These are local samples; real host concurrency still needs deployment acceptance.
+
+## Job execution
+
+- Added atomic job claiming and a shared catalog writer lease. Cancelled queued jobs and duplicate/missing deliveries do not execute. Only terminal history can be cleared. Job creation and enqueueing share a transaction.
+- Added ten-second heartbeats, explicit stale-job recovery (`recover_jobs`), new-job retry actions, and bounded/cancellable BGG queue waits. Permanent authentication/input errors fail without repeated sleeps.
+- Job pages render source-specific phases, show new errors without reload, recover from polling failures, warn about missing heartbeats, and hide privileged controls from public viewers.
+- Validation: 72 Django tests pass, Ruff passes, migration drift check passes. Nine new checks cover queued cancellation, duplicates, lease contention/release, stale recovery, active-history preservation, public permissions and bounded waits. Actual external-service and deployment behavior remains a separate acceptance step.

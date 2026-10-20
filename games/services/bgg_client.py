@@ -58,8 +58,19 @@ class BGGClient:
             self.api_headers = {}
             log.warning("BGG_API_TOKEN not found in environment variables. API calls may fail.")
 
+    def _check(self):
+        callback = getattr(self, 'check_cancelled', None)
+        if callback:
+            callback()
+
     def _sleep(self, seconds: float | None = None):
-        time.sleep(seconds if seconds is not None else self.throttle_sec)
+        remaining = max(0, seconds if seconds is not None else self.throttle_sec)
+        while remaining > 0:
+            self._check()
+            step = min(remaining, 1.0)
+            time.sleep(step)
+            remaining -= step
+        self._check()
 
     def _get(
         self,
@@ -74,6 +85,7 @@ class BGGClient:
         rate_limit_retries = 0
         max_rate_retries = max(max_retries * 2, 6)
         while True:
+            self._check()
             try:
                 resp = self.session.get(url, headers=headers, timeout=60)
                 if resp.status_code == 429:
@@ -92,7 +104,7 @@ class BGGClient:
                         rate_limit_retries,
                         wait,
                     )
-                    self._sleep(wait)
+                    self._sleep(min(max(wait, 0), 120))
                     if rate_limit_retries >= max_rate_retries:
                         raise RuntimeError(
                             "BGG rate limit hit repeatedly while fetching data."
@@ -105,6 +117,9 @@ class BGGClient:
                         "BoardGameGeek ranks download returned HTTP %s. "
                         "Generate a fresh data-dump link and try again." % resp.status_code
                     )
+                if resp.status_code in (400, 401, 403, 404):
+                    if resp.status_code != 400 or 'cannot load more than' not in resp.text.lower():
+                        raise RuntimeError(f'BGG returned HTTP {resp.status_code}. Check credentials and request inputs.')
                 if resp.status_code == 400:
                     try:
                         body = resp.text.lower()
@@ -183,10 +198,7 @@ class BGGClient:
                         }
                         processed += 1
                         if on_progress and limit is not None and processed % 200 == 0:
-                            try:
-                                on_progress(progress=processed, total=limit)
-                            except Exception:
-                                pass
+                            on_progress(progress=processed, total=limit)
                         if limit is not None and processed >= limit:
                             break
         except zipfile.BadZipFile as exc:
@@ -196,11 +208,8 @@ class BGGClient:
             raise RuntimeError('Ranks CSV did not contain any ranked games.')
 
         if on_progress:
-            try:
-                target = (n if n > 0 else processed) or processed
-                on_progress(progress=processed, total=target)
-            except Exception:
-                pass
+            target = (n if n > 0 else processed) or processed
+            on_progress(progress=processed, total=target)
         return results
 
 
@@ -216,24 +225,16 @@ class BGGClient:
                 'subtype': subtype,
             }
             url = f"https://boardgamegeek.com/xmlapi2/collection?{urlencode(query)}"
-            retries = 0
-            while True:
-                resp = self.session.get(url, headers=self.api_headers, timeout=60)
-                if resp.status_code == 202:
-                    retries += 1
-                    wait = min(5 * retries, 30)
-                    log.info("Collection queued (202). Waiting %ss...", wait)
-                    self._sleep(wait)
-                    continue
-                if resp.status_code != 200:
-                    retries += 1
-                    if retries > 50:
-                        raise RuntimeError(f"Collection fetch failed after many retries: {resp.status_code}")
-                    wait = 5
-                    log.warning("Collection status %s. retry in %ss", resp.status_code, wait)
-                    self._sleep(wait)
-                    continue
-                break
+            for attempt in range(12):
+                self._check()
+                resp = self._get(url, headers=self.api_headers, max_retries=3)
+                if resp.status_code == 200:
+                    break
+                if resp.status_code != 202:
+                    raise RuntimeError(f'Unexpected collection response: HTTP {resp.status_code}')
+                if attempt == 11:
+                    raise RuntimeError('BGG collection is still queued after 12 attempts. Please retry later.')
+                self._sleep(min(5 * (attempt + 1), 30))
             root = ET.fromstring(resp.content)
             _validate_xml(root)
             for item in root.findall('item'):
@@ -270,10 +271,7 @@ class BGGClient:
                 }
             # progress callback per subtype
             if on_progress:
-                try:
-                    on_progress(progress=idx, total=len(subtypes), items=len(out))
-                except Exception:
-                    pass
+                on_progress(progress=idx, total=len(subtypes), items=len(out))
             self._sleep(1.5)
         return out
 
@@ -318,10 +316,7 @@ class BGGClient:
         if not results:
             raise RuntimeError(f"BGG family {family_id} returned no linked games.")
         if on_progress:
-            try:
-                on_progress(progress=len(results), total=len(results))
-            except Exception:
-                pass
+            on_progress(progress=len(results), total=len(results))
         return results
 
     # -------- Thing API (details + polls) --------
@@ -369,10 +364,7 @@ class BGGClient:
                         wait,
                     )
                     if on_progress:
-                        try:
-                            on_progress(status="waiting")
-                        except Exception:
-                            pass
+                        on_progress(status="waiting")
                     self._sleep(wait)
                     if queue_retries >= 12:
                         snippet = message_text[:120]
@@ -491,10 +483,8 @@ class BGGClient:
 
             idx += len(chunk)
             if on_progress:
-                try:
-                    on_progress(processed=min(idx, total_ids), total=total_ids, batch=current_batch, status="running")
-                except Exception:
-                    pass
+                on_progress(processed=min(idx, total_ids), total=total_ids, batch=current_batch, status="running")
+            self._check()
             self._sleep(self.detail_throttle_sec)
             yield chunk, chunk_details, chunk_counts
 

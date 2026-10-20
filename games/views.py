@@ -3,6 +3,8 @@ from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.db import transaction
+from .jobs import enqueue
 from .models import Game, FetchJob, BGGUser, Collection, OwnedGame
 from .tasks import run_fetch_top_n, run_fetch_collection, run_refresh, run_scrape_rtt, run_fetch_bga
 from .utils import GameFilter, serialize_game_row, recompute_owned_flags
@@ -23,6 +25,7 @@ def home(request):
 
 @login_required
 @user_passes_test(lambda u: u.is_superuser)
+@transaction.atomic
 def refresh(request):
     saved_users = list(BGGUser.objects.order_by('username').values_list('username', flat=True))
     if request.method == 'POST':
@@ -95,34 +98,40 @@ def refresh(request):
         'users': saved_users,
     })
 
+def _job_state(job):
+    phases = (job.params or {}).get('phases', {})
+    if not phases:
+        phases = {'source': {'status': job.status, 'progress': job.progress, 'total': job.total,
+                             'started_at': job.created_at.isoformat(),
+                             'label': job.get_kind_display()}}
+    else:
+        phases = {key: dict(value) for key, value in phases.items()}
+    for key, phase in phases.items():
+        phase.setdefault('label', {'top_n': 'Ranked games', 'collection': 'Collections',
+                                 'details': 'Fetch and validate details', 'cleanup': 'Apply catalog'}.get(key, key.title()))
+        if job.status in ['done', 'error', 'cancelled'] and phase.get('status') in ['running', 'waiting']:
+            phase['status'] = job.status
+        if job.finished_at and phase.get('status') in ['done', 'error', 'cancelled']:
+            phase.setdefault('finished_at', job.finished_at.isoformat())
+    from django.utils import timezone
+    last_seen = job.heartbeat_at or job.created_at
+    notice = ''
+    if job.status in ['pending', 'running', 'cancelling'] and (timezone.now() - last_seen).total_seconds() > 120:
+        notice = ('Waiting to start. Check that the background worker is running.' if job.status == 'pending'
+                  else 'No recent worker heartbeat. The worker may need attention.')
+    return {'status': job.status, 'progress': job.progress, 'total': job.total,
+            'error': job.error, 'phases': phases, 'worker_notice': notice,
+            'created_at': job.created_at.isoformat(),
+            'finished_at': job.finished_at.isoformat() if job.finished_at else None}
+
+
 def job_detail(request, job_id: int):
     job = get_object_or_404(FetchJob, id=job_id)
+    state = _job_state(job)
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        return JsonResponse({
-            'status': job.status,
-            'progress': job.progress,
-            'total': job.total,
-            'error': job.error,
-            'phases': (job.params or {}).get('phases', {}),
-            'created_at': job.created_at.isoformat(),
-            'finished_at': job.finished_at.isoformat() if job.finished_at else None,
-        })
-
-    params = job.params or {}
-    if not isinstance(params, dict):
-        params = {}
-    phases_raw = params.get('phases') if isinstance(params, dict) else {}
-    if not isinstance(phases_raw, dict):
-        phases_raw = {}
-    phase_names = ['top_n', 'collection', 'details', 'cleanup']
-    phase_context = {name: (phases_raw.get(name) or {}) for name in phase_names}
-
+        return JsonResponse(state)
     return render(request, 'job_detail.html', {
-        'job': job,
-        'job_params': params,
-        'job_phases': phases_raw,
-        'phase_context': phase_context,
-        'phase_order': phase_names,
+        'job': job, 'state': state, 'phase_cards': list(state['phases'].items()),
     })
 
 
@@ -131,9 +140,7 @@ def cancel_job(request, job_id: int):
     if request.method != 'POST':
         return HttpResponse(status=405)
     job = get_object_or_404(FetchJob, id=job_id)
-    if job.status in ('pending', 'running'):
-        job.status = 'cancelling'
-        job.save(update_fields=['status'])
+    FetchJob.objects.filter(pk=job.pk, status__in=['pending', 'running']).update(status='cancelling')
     return redirect('job_detail', job_id=job.id)
 
 
@@ -141,8 +148,21 @@ def cancel_job(request, job_id: int):
 def clear_jobs(request):
     if request.method != 'POST':
         return HttpResponse(status=405)
-    FetchJob.objects.all().delete()
+    FetchJob.objects.filter(status__in=['done', 'error', 'cancelled']).delete()
     return redirect('home')
+
+
+@user_passes_test(lambda u: u.is_superuser)
+@transaction.atomic
+def retry_job(request, job_id):
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    old = get_object_or_404(FetchJob, pk=job_id, status__in=['error', 'cancelled'])
+    params = {key: value for key, value in old.params.items()
+              if key in ['n', 'username', 'usernames', 'batch_size', 'zip_url', 'family_id']}
+    job = FetchJob.objects.create(kind=old.kind, params=params)
+    enqueue(job)
+    return redirect('job_detail', job_id=job.pk)
 
 
 def _compute_rows_context(request):

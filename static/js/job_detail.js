@@ -9,8 +9,7 @@
   const cancelButton = document.getElementById('cancelJobButton');
   const cancellingChip = document.getElementById('cancellingChip');
   const phaseCards = new Map(Array.from(document.querySelectorAll('.phase-card')).map(card => [card.dataset.phase, card]));
-  const PHASE_ORDER = ['top_n', 'collection', 'details', 'cleanup'];
-  let pollingActive = true;
+  const PHASE_ORDER = Array.from(phaseCards.keys());
 
   if (cancelForm && cancelButton) {
     cancelForm.addEventListener('submit', () => {
@@ -209,7 +208,20 @@
     fetch(window.location.href, { headers: { 'x-requested-with': 'XMLHttpRequest' } })
       .then(resp => (resp.ok ? resp.json() : null))
       .then(data => {
-        if (!data) return;
+        if (!data) {
+          const notice = document.getElementById('connectionNotice');
+          if (notice) notice.textContent = 'Connection interrupted. Retrying…';
+          setTimeout(poll, 4000);
+          return;
+        }
+        const notice = document.getElementById('connectionNotice');
+        if (notice) notice.textContent = data.worker_notice || '';
+        const errorPanel = document.getElementById('jobErrorPanel');
+        const errorText = document.getElementById('jobError');
+        if (errorText) errorText.textContent = data.error || '';
+        if (errorPanel) errorPanel.hidden = !data.error;
+        const retry = document.getElementById('retryJobForm');
+        if (retry) retry.hidden = !['error', 'cancelled'].includes(data.status);
         const status = data.status || '';
         if (statusChip) statusChip.textContent = toTitle(status);
         toggleCancelControls(status);
@@ -229,7 +241,6 @@
 
         const done = status === 'done' || status === 'error' || status === 'cancelled';
         if (done) {
-          pollingActive = false;
           updateDurations(); // Perform one final update to ensure 'finished_at' is used
           clearInterval(timerInterval); // Stop the loop so it doesn't flick back if something is weird, but mainly to save CPU
           toggleCancelControls('');
@@ -238,6 +249,8 @@
         }
       })
       .catch(() => {
+        const notice = document.getElementById('connectionNotice');
+        if (notice) notice.textContent = 'Connection interrupted. Retrying…';
         setTimeout(poll, 4000);
       });
   }
