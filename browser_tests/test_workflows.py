@@ -83,7 +83,7 @@ class CatalogBrowserTests(StaticLiveServerTestCase):
         expect(self.page.locator('#rows')).not_to_contain_text('Trading game')
         expect(self.page.locator('#activeFilters')).to_contain_text('At most 60 min')
         self.page.locator('th a[data-sort="playtime"]').click()
-        expect(self.page.locator('th[data-column="playtime"]')).to_have_attribute('aria-sort', 'desc')
+        expect(self.page.locator('th[data-column="playtime"]')).to_have_attribute('aria-sort', 'descending')
         export_url = self.page.locator('#filteredExport').get_attribute('href')
         rows = list(csv.DictReader(io.StringIO(self.context.request.get(self.live_server_url + export_url).text())))
         self.assertEqual([row['Game'] for row in rows], ['Dice game'])
