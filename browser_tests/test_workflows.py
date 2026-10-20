@@ -22,24 +22,17 @@ from games.tests.test_views import VIEW_TEST_SETTINGS
 
 @override_settings(**VIEW_TEST_SETTINGS)
 class CatalogBrowserTests(StaticLiveServerTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
-        super().tearDownClass()
-
     def setUp(self):
         _sync_catalog(
             {'1': game_info(1, 'Dice game'), '2': game_info(2, 'Trading game')},
             {'1': game_detail(mechanics=['Dice Rolling']), '2': game_detail(mechanics=['Trading'])},
             {'1': {'4': player_count(best_votes=50)}, '2': {'4': player_count(best_votes=50)}},
         )
+        self.job = FetchJob.objects.create(kind='top_n')
+        # Start Playwright only after synchronous ORM fixture setup, and stop
+        # its event loop before Django performs synchronous database teardown.
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch()
         self.context = self.browser.new_context(viewport={'width': 1280, 'height': 900})
         self.page = self.context.new_page()
 
@@ -48,6 +41,8 @@ class CatalogBrowserTests(StaticLiveServerTestCase):
         directory.mkdir(parents=True, exist_ok=True)
         self.page.screenshot(path=str(directory / (self._testMethodName + '.png')), full_page=True)
         self.context.close()
+        self.browser.close()
+        self.playwright.stop()
 
     def test_multiple_filters_reload_and_csv_agree(self):
         self.page.goto(self.live_server_url + '/games/')
@@ -76,7 +71,7 @@ class CatalogBrowserTests(StaticLiveServerTestCase):
         expect(self.page.locator('th:visible')).to_have_count(25)
 
     def test_job_polling_recovers_and_renders_new_error(self):
-        job = FetchJob.objects.create(kind='top_n')
+        job = self.job
         self.page.goto(self.live_server_url + f'/jobs/{job.pk}/')
         expect(self.page.locator('#cancelJobForm')).to_have_count(0)
         attempts = []

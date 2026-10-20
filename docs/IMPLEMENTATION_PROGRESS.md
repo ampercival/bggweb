@@ -45,3 +45,9 @@ No real catalog refreshes or external scrapes are run as part of automated valid
 - Added CI for Python 3.11/3.12, PostgreSQL 16, production settings, browser filter/export/mobile/job-error scenarios and dependency advisories. The resolved production lock audit reported no known vulnerabilities on October 20, 2026.
 - Validation so far: 93 backend tests pass on the clean locked dependency environment (Django 5.2.18), Ruff and JavaScript syntax checks pass, migration drift/static/production-settings checks pass, and migrations through 0013 apply locally. A real queue-delivery test executes a mocked source job through the queue, not just its direct function.
 - CI browser/PostgreSQL outcomes and final local browser acceptance are recorded below after the pushed workflow completes. Actual hosting persistence, live source credentials and an off-host backup schedule remain external deployment acceptance items; no production import or hosting changes were initiated.
+
+## CI follow-up
+
+- The first expanded CI run passed Python 3.11/3.12, PostgreSQL and the dependency audit. Browser setup failed because the synchronous Playwright driver was started before synchronous Django fixtures; its lifecycle now encloses browser work only, without disabling Django safety checks.
+- The repository's existing automatic Pages workflow tried to parse Django template syntax in CLAUDE.md. Added a documentation-only Jekyll exclusion list; this does not deploy or reconfigure the Django host.
+- Final review also aligned exact high player-count/custom page-size controls and clamped page URLs with server filter state.

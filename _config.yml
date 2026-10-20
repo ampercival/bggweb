@@ -1,0 +1,25 @@
+# GitHub Pages hosts repository documentation. The Django app requires its web/worker host.
+title: BGG Player Count Optimizer
+description: Setup, development and operations documentation
+exclude:
+  - CLAUDE.md
+  - bggweb
+  - games
+  - templates
+  - static
+  - staticfiles
+  - browser_tests
+  - scripts
+  - artifacts
+  - backups
+  - Procfile
+  - Procfile.dev
+  - manage.py
+  - start_dev.ps1
+  - pyproject.toml
+  - requirements.txt
+  - requirements-lock.txt
+  - requirements-dev.txt
+  - requirements-dev-lock.txt
+  - requirements-browser.txt
+  - requirements-audit.txt

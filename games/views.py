@@ -217,6 +217,7 @@ def _compute_rows_context(request):
 
     paginator = Paginator(qs, page_size)
     page_obj = paginator.get_page(page_number)
+    request.GET['page'] = str(page_obj.number)
     rows_count = paginator.count
     
     rows = [serialize_game_row(rec, pc_range, pc_min) for rec in page_obj.object_list]
@@ -291,14 +292,16 @@ def _compute_rows_context(request):
         'player_count': request.GET.get('player_count', 'all'),
         'min_year': request.GET.get('min_year') or str(game_filter.year_slider_min),
         'max_year': request.GET.get('max_year') or str(game_filter.year_slider_max),
-        'year_slider_min': game_filter.year_slider_min,
-        'year_slider_max': game_filter.year_slider_max,
+        'year_slider_min': min(game_filter.year_slider_min, int(request.GET['min_year'])),
+        'year_slider_max': max(game_filter.year_slider_max, int(request.GET['max_year'])),
         'min_avg_rating': request.GET.get('min_avg_rating', '0.0'),
         'max_avg_rating': request.GET.get('max_avg_rating', '10.0'),
         'min_weight': request.GET.get('min_weight', '0.0'),
         'max_weight': request.GET.get('max_weight', '5.0'),
         'min_voters': request.GET.get('min_voters', ''),
         'min_poll_votes': request.GET.get('min_poll_votes', '0'),
+        'numeric_player_counts': sorted(set(range(1, 13)) | ({int(request.GET['player_count'])} if request.GET['player_count'].isdigit() else set())),
+        'custom_page_size': page_size if page_size not in [50, 100, 200, 500, 1000] else None,
         'qs': qs_param,
         'qs_nosort': qs_nosort,
         'sort_query': query_dict.urlencode(),

@@ -36,13 +36,9 @@
         <label for="player_count">Player count</label>
         <select name="player_count" id="player_count">
           <option value="all" {% if player_count == 'all' %}selected{% endif %}>All</option>
-          <option value="1" {% if player_count == '1' %}selected{% endif %}>1</option>
-          <option value="2" {% if player_count == '2' %}selected{% endif %}>2</option>
-          <option value="3" {% if player_count == '3' %}selected{% endif %}>3</option>
-          <option value="4" {% if player_count == '4' %}selected{% endif %}>4</option>
-          <option value="5" {% if player_count == '5' %}selected{% endif %}>5</option>
-          <option value="6" {% if player_count == '6' %}selected{% endif %}>6</option>
-          <option value="7" {% if player_count == '7' %}selected{% endif %}>7</option>
+          {% for count in numeric_player_counts %}
+          <option value="{{ count }}" {% if player_count == count|stringformat:'s' %}selected{% endif %}>{{ count }}</option>
+          {% endfor %}
           <option value="8plus" {% if player_count == '8plus' %}selected{% endif %}>8 or more</option>
         </select>
       </div>
@@ -153,6 +149,7 @@
       <div class="filter-field">
         <label for="page_size">Rows per page</label>
         <select name="page_size" id="page_size">
+          {% if custom_page_size %}<option value="{{ custom_page_size }}" selected>{{ custom_page_size }}</option>{% endif %}
           <option value="50" {% if page_size|stringformat:'s' == '50' %}selected{% endif %}>50</option>
           <option value="100" {% if page_size|stringformat:'s' == '100' %}selected{% endif %}>100</option>
           <option value="200" {% if page_size|stringformat:'s' == '200' %}selected{% endif %}>200</option>
