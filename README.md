@@ -17,6 +17,8 @@ A Django app for choosing board games by group size, BGG ratings, player-count p
 
 Windows users can run `./start_dev.ps1`. It installs locked runtime dependencies, enables development settings, migrates and starts both web and worker on port 8471. It also enables access from the trusted local network; use the loopback-only commands below when LAN access is unnecessary.
 
+The launcher replaces leftover web/worker processes belonging to this checkout before starting, and cleans up its children on exit. It refuses to interrupt active/queued imports or stop an unrelated application using the port. Only one launcher may run for this checkout: press Ctrl+C in its window before starting it again. This prevents an older server from continuing to serve outdated pages after an update.
+
 For manual PowerShell setup, configure development mode **before migrations**:
 
 ```powershell

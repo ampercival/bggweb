@@ -15,6 +15,27 @@ Set-Location -Path $PSScriptRoot
 # server is reachable from other devices on the LAN, not just this machine).
 $Port = 8471
 $DevUrl = "http://127.0.0.1:$Port/"
+. (Join-Path $PSScriptRoot 'scripts\dev_processes.ps1')
+$env:DJANGO_DEBUG = "True"
+
+# Hold one launcher per checkout. The OS releases this lock even if its window
+# closes abruptly; leftover children are checked and cleaned on the next run.
+$rootBytes = [Text.Encoding]::UTF8.GetBytes($PSScriptRoot.ToLowerInvariant())
+$hasher = [Security.Cryptography.SHA256]::Create()
+$rootHash = [BitConverter]::ToString($hasher.ComputeHash($rootBytes)).Replace('-', '')
+$hasher.Dispose()
+$launcherMutex = New-Object Threading.Mutex($false, "Local\bggweb-dev-$rootHash")
+try { $hasLauncherLock = $launcherMutex.WaitOne(0) }
+catch [Threading.AbandonedMutexException] { $hasLauncherLock = $true }
+if (-not $hasLauncherLock) {
+    $launcherMutex.Dispose()
+    throw 'This checkout already has a running launcher. Press Ctrl+C in that window, then run start_dev.ps1 again.'
+}
+$cleanupProcesses = $false
+try {
+    Assert-BggDevCanRestart -ProjectRoot $PSScriptRoot -Port $Port
+    $cleanupProcesses = $true
+    Stop-BggDevProcesses -ProjectRoot $PSScriptRoot
 
 # Check if .venv exists, if not create it
 if (-not (Test-Path ".venv")) {
@@ -71,3 +92,10 @@ foreach ($ip in $LanIps) {
 }
 honcho start -f Procfile.dev
 if ($LASTEXITCODE -ne 0) { throw "Development server or worker exited with an error." }
+} finally {
+    try { if ($cleanupProcesses) { Stop-BggDevProcesses -ProjectRoot $PSScriptRoot } }
+    finally {
+        $launcherMutex.ReleaseMutex()
+        $launcherMutex.Dispose()
+    }
+}
